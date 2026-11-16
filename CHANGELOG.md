@@ -12,6 +12,10 @@ one with FreeRDP's `xfreerdp`.
 
 ### Added
 
+- **Packages.** A `.rpm` for Fedora, a `.deb` for Debian 13 and Ubuntu 26.04 and newer, and a
+  package for Arch Linux, each depending on the distribution's own FreeRDP 3, PySide6 and
+  `keyring`. krdpc now also finds FreeRDP 3's `xfreerdp3` program, which is how Debian and
+  Ubuntu name it. The README says how to install them.
 - **Documentation.** The README now covers installing, updating and removing krdpc, using it,
   what to do when something goes wrong, and what is not built.
 - **Preferences.** **Preferences…** in the main menu (Ctrl+,) sets the size of the icons in the

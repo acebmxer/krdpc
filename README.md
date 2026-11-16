@@ -55,15 +55,36 @@ type the address and options every time. krdpc adds that screen and nothing else
 ## Requirements
 
 - Linux with KDE Plasma (Fedora 45 is the first target).
-- The `freerdp` package (provides `xfreerdp`).
+- FreeRDP 3, which provides `xfreerdp` (Fedora and Arch: package `freerdp`; Debian and Ubuntu:
+  package `freerdp3-x11`, which provides `xfreerdp3`). FreeRDP 2 is not supported.
 - Python 3, PySide6 (Qt 6) and `keyring` (Fedora: `python3-pyside6`, `python3-keyring`).
 - KDE Wallet, if you want passwords remembered.
 
 ## Install
 
-On Fedora KDE, from a clone of this repository. Use Fedora's own PySide6 package,
-not the one from PyPI: it is built against the Qt that Plasma uses, so krdpc
-follows your theme and icons.
+### From a package
+
+Download the file for your distribution from the
+[Releases page](https://github.com/acebmxer/krdpc/releases) (a beta is published
+there as a pre-release). Each package pulls in FreeRDP 3, PySide6 and `keyring`
+from your distribution, so krdpc follows your Plasma theme.
+
+| Distribution | Install | Remove |
+| --- | --- | --- |
+| Fedora | `sudo dnf install ./krdpc-*.rpm` | `sudo dnf remove krdpc` |
+| Debian 13, Ubuntu 26.04 and newer | `sudo apt install ./krdpc_*.deb` | `sudo apt remove krdpc` |
+| Arch Linux | `sudo pacman -U krdpc-*.pkg.tar.zst` | `sudo pacman -R krdpc` |
+
+Ubuntu 24.04 and older have no PySide6 package, so the `.deb` cannot be installed
+there; use the steps below with a virtual environment instead.
+
+krdpc then appears in the application menu under Network. To update, install the
+newer package the same way.
+
+### From a clone of this repository
+
+On Fedora KDE. Use Fedora's own PySide6 package, not the one from PyPI: it is built
+against the Qt that Plasma uses, so krdpc follows your theme and icons.
 
 ```bash
 sudo dnf install freerdp python3-pyside6 python3-keyring
@@ -72,22 +93,21 @@ install -Dm644 data/krdpc.desktop ~/.local/share/applications/krdpc.desktop
 install -Dm644 src/krdpc/krdpc.svg ~/.local/share/icons/hicolor/scalable/apps/krdpc.svg
 ```
 
-krdpc then appears in the application menu under Network. Or run `krdpc` in a terminal.
-
-**Updating.** After `git pull`, run `pip install --user --no-deps --force-reinstall .`
-again. The application menu starts the installed copy, not the files in the clone.
-
-**Removing it.**
+Or run `krdpc` in a terminal. After `git pull`, run
+`pip install --user --no-deps --force-reinstall .` again: the application menu starts
+the installed copy, not the files in the clone. To remove it:
 
 ```bash
 pip uninstall krdpc
 rm ~/.local/share/applications/krdpc.desktop
 rm ~/.local/share/icons/hicolor/scalable/apps/krdpc.svg
-rm -f ~/.config/autostart/krdpc.desktop
 ```
 
-Your computers are in `~/.config/krdpc/` and your settings in
-`~/.config/krdpc/krdpc.conf`; delete that folder to remove them too. Remembered
+### What it leaves behind
+
+Either way, krdpc keeps your computers in `~/.config/krdpc/`, your settings in
+`~/.config/krdpc/krdpc.conf`, and (if you turn on "start at login")
+`~/.config/autostart/krdpc.desktop`. Delete those to remove everything. Remembered
 passwords stay in KDE Wallet under the name `krdpc`; remove them there.
 
 ## Using it

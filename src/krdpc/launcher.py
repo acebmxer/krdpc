@@ -50,6 +50,10 @@ _EXIT_MESSAGES = {
 # Exit codes for a refused sign-in: a remembered password that gets one is forgotten.
 LOGIN_REFUSED_CODES = frozenset({132, 134, 154, 155})
 
+# FreeRDP 3's program is `xfreerdp` on Fedora and Arch but `xfreerdp3` on Debian and Ubuntu,
+# where plain `xfreerdp` may be FreeRDP 2, which krdpc does not support. The 3 name goes first.
+XFREERDP_NAMES = ("xfreerdp3", "xfreerdp")
+
 _MISSING = (
     "xfreerdp was not found. Install the freerdp package, "
     "or set where it is in Preferences, then try again."
@@ -122,7 +126,7 @@ class Launcher(QObject):
 
     def connect_to(self, profile: Profile, password: str = "", gateway_password: str = "") -> None:
         """Start a connection. The passwords go to xfreerdp through a pipe, never its arguments."""
-        executable = self._find("xfreerdp")
+        executable = next((found for name in XFREERDP_NAMES if (found := self._find(name))), None)
         if executable is None:
             self.failed.emit(profile.id, _MISSING)
             return

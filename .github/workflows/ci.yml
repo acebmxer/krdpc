@@ -27,6 +27,13 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
 
+  scripts:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: shellcheck scripts/*.sh packaging/*/*.sh packaging/deb/postinst packaging/deb/prerm
+
   tests:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest

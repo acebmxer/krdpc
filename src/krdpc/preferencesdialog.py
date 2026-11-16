@@ -60,7 +60,7 @@ class PreferencesDialog(QDialog):
         self._tray_changed()
 
         self._xfreerdp = QLineEdit(preferences.xfreerdp_path)
-        self._xfreerdp.setPlaceholderText("Empty: use the xfreerdp found on your PATH")
+        self._xfreerdp.setPlaceholderText("Empty: use xfreerdp3 or xfreerdp from your PATH")
         browse = QPushButton("Browse…")
         browse.clicked.connect(self._browse)
         program_row = QHBoxLayout()

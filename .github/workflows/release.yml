@@ -1,0 +1,176 @@
+name: Release
+
+run-name: ${{ inputs.description || github.event.head_commit.message || 'Release' }}
+
+# Builds the packages (RPM for Fedora, DEB for Debian and Ubuntu, a package for Arch
+# Linux), installs each in a clean container of its distro and checks krdpc works
+# (scripts/smoke_test.sh), then attaches them with SHA256SUMS to a release.
+#
+# main -> DRAFT stable release, tag v<version>. Starts when the version in
+#         src/krdpc/__init__.py changes on main, or by hand. Publishing the draft
+#         creates the tag, so the files are already there when it goes public.
+# dev  -> only by hand (Actions -> Release -> Run workflow, branch dev). A beta
+#         pre-release, tag v<version>-beta.<n>, n counting up per version, published
+#         at once with the files attached. Pre-releases are never "latest".
+on:
+  push:
+    branches: [main]
+    paths: ["src/krdpc/__init__.py"]
+  workflow_dispatch:
+    inputs:
+      description:
+        description: Title shown in the Actions run list (optional)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  # The path filter fires on any edit to __init__.py. A push only releases when the
+  # version itself changed; a manual run always goes ahead.
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+
+      - id: check
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          now=$(scripts/package_version.sh)
+          changed=true
+          if [[ "$GITHUB_EVENT_NAME" == "push" && -n "$BEFORE" && ! "$BEFORE" =~ ^0+$ ]]; then
+            git fetch --no-tags --depth=1 origin "$BEFORE"
+            before=$(git show "$BEFORE:src/krdpc/__init__.py" | sed -n 's/^__version__ = "\(.*\)"$/\1/p')
+            if [[ "$before" == "$now" ]]; then
+              echo "Version is still $now; __init__.py changed for another reason. Not releasing."
+              changed=false
+            fi
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    if: needs.version.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    outputs:
+      beta: ${{ steps.beta.outputs.n }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Stable and beta alike: a beta of a version that is already released would be
+      # labelled with the old number (v0.1.0-beta.4 after v0.1.0).
+      - name: Stop if this version is already released
+        run: |
+          version=$(scripts/package_version.sh)
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+            echo "::error::v$version is already tagged; bump the version in src/krdpc/__init__.py on this branch first"
+            exit 1
+          fi
+
+      # Betas count up per version: v0.1.0-beta.1, .2, .3. The next number is one above
+      # the highest beta tag of this version already on the remote.
+      - name: Number this beta
+        id: beta
+        if: github.ref_name != 'main'
+        run: |
+          version=$(scripts/package_version.sh)
+          last=$(git ls-remote --tags origin "refs/tags/v$version-beta.*" \
+            | sed -n 's|.*-beta\.\([0-9]*\)$|\1|p' | sort -n | tail -1)
+          echo "n=$(( ${last:-0} + 1 ))" >> "$GITHUB_OUTPUT"
+
+      - name: Build the packages
+        env:
+          BETA: ${{ steps.beta.outputs.n }}
+        run: |
+          mkdir release
+          for format in rpm deb arch; do
+            scripts/build_package.sh "$format" release $BETA
+          done
+          cd release
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release
+          path: release/
+          if-no-files-found: error
+
+  smoke:
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [fedora, debian, ubuntu, arch]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: release
+
+      - name: Verify checksums
+        working-directory: release
+        run: sha256sum -c SHA256SUMS
+
+      - run: scripts/smoke_test.sh "${{ matrix.distro }}" release
+
+  release:
+    needs: [build, smoke]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      # Checkout first: on an empty workspace it clears the folder, which would delete
+      # files downloaded before it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: release
+
+      - name: Create or refresh the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BETA_NUMBER: ${{ needs.build.outputs.beta }}
+        run: |
+          version=$(scripts/package_version.sh)
+          tag="v$version"
+          title="krdpc $tag (stable)"
+          flags=(--draft)
+          notes="Stable release. Checksums for every file are in SHA256SUMS."
+          if [[ "$GITHUB_REF_NAME" != "main" ]]; then
+            tag="v$version-beta.$BETA_NUMBER"
+            title="krdpc $tag"
+            flags=(--prerelease)
+            # What is new in this beta is what CHANGELOG.md lists under [Unreleased].
+            unreleased=$(awk '/^## \[Unreleased\]/{f=1; next} /^## \[/{f=0} f' CHANGELOG.md)
+            notes=$(printf '%s\n\n%s' "Beta build from the $GITHUB_REF_NAME branch, for testing before it reaches main. Checksums for every file are in SHA256SUMS." "$unreleased")
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # A beta is published on creation, so only a stable release is protected once public.
+            if [[ "$GITHUB_REF_NAME" == "main" && "$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" != "true" ]]; then
+              echo "::error::$tag is already published; not touching it"
+              exit 1
+            fi
+            # The files are rebuilt from this commit, so the tag must point here too.
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
+            if [[ "$GITHUB_REF_NAME" != "main" ]]; then
+              gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "$title" --notes "$notes"
+            fi
+            gh release upload "$tag" release/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" release/* \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "$title" "${flags[@]}" \
+              --notes "$notes"
+          fi

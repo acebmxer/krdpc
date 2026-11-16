@@ -51,6 +51,31 @@ def test_missing_xfreerdp_is_a_plain_message(qapp, store, events):
     assert launcher.active_count() == 0
 
 
+def test_xfreerdp3_is_preferred_over_xfreerdp(qapp, store, tmp_path, events):
+    asked = []
+
+    def find(name):
+        asked.append(name)
+        return {"xfreerdp3": fake_xfreerdp(tmp_path), "xfreerdp": "/usr/bin/false"}[name]
+
+    launcher = make_launcher(store, find, events)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["ended"])
+    assert asked[0] == "xfreerdp3"
+    assert (tmp_path / "args").exists()  # the fake one ran, not /usr/bin/false
+
+
+def test_plain_xfreerdp_is_used_when_there_is_no_xfreerdp3(qapp, store, tmp_path, events):
+    launcher = make_launcher(
+        store,
+        lambda name: fake_xfreerdp(tmp_path) if name == "xfreerdp" else None,
+        events,
+    )
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["ended"])
+    assert events["failed"] == []
+
+
 def test_successful_connection(qapp, store, tmp_path, events):
     profile = saved(store, username="nick")
     launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path), events)
