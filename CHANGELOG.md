@@ -76,7 +76,8 @@ one with FreeRDP's `xfreerdp`.
   no X11 display for `xfreerdp` (such as Fedora under WSL when WSL's X11 display has stopped),
   krdpc starts FreeRDP's SDL client (`sdl-freerdp`), which also works on Wayland; it asks about
   untrusted certificates in its own window. The `.deb` recommends `freerdp3-sdl`, which provides
-  it on Debian and Ubuntu (#12).
+  it on Debian and Ubuntu (#12). Under WSL the SDL client is started with software rendering,
+  because with WSL's GPU driver it crashed as soon as it drew its window (#15).
 - **The list of computers.** The main window shows saved computers in a sortable table
   (Name, Group, Labels, Server, Plugin, Last used) with a search row, a toolbar and a "Total N
   items." footer, laid out like Remmina's main window and built with Qt so it follows your KDE

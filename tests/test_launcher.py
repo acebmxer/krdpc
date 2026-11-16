@@ -386,3 +386,65 @@ def test_x11_display_check(tmp_path, monkeypatch):
         assert launcher.x11_display_available({"DISPLAY": "unix:7.0"})
     finally:
         server.close()
+
+
+def named_program(tmp_path, name):
+    """A stand-in FreeRDP program called `name` that records the graphics setting it got."""
+    script = tmp_path / name
+    script.write_text(
+        f'#!/bin/sh\ncat > /dev/null\necho "[${{LIBGL_ALWAYS_SOFTWARE-unset}}]" > "{tmp_path}/gl"\n'
+    )
+    script.chmod(0o755)
+    return str(script)
+
+
+def run_and_read_gl(store, tmp_path, events, name, under_wsl, has_x11):
+    launcher = Launcher(
+        store,
+        find_executable={name: named_program(tmp_path, name)}.get,
+        has_x11_display=lambda: has_x11,
+        under_wsl=lambda: under_wsl,
+    )
+    launcher.ended.connect(events["ended"].append)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["ended"])
+    return (tmp_path / "gl").read_text().strip()
+
+
+def test_sdl_client_under_wsl_gets_software_rendering(qapp, store, tmp_path, events, monkeypatch):
+    """With WSL's GPU driver the SDL client crashes when it draws (#15)."""
+    monkeypatch.delenv("LIBGL_ALWAYS_SOFTWARE", raising=False)
+    got = run_and_read_gl(store, tmp_path, events, "sdl-freerdp", under_wsl=True, has_x11=False)
+    assert got == "[1]"
+
+
+def test_sdl_client_outside_wsl_is_left_alone(qapp, store, tmp_path, events, monkeypatch):
+    monkeypatch.delenv("LIBGL_ALWAYS_SOFTWARE", raising=False)
+    got = run_and_read_gl(store, tmp_path, events, "sdl-freerdp", under_wsl=False, has_x11=False)
+    assert got == "[unset]"
+
+
+def test_xfreerdp_under_wsl_is_left_alone(qapp, store, tmp_path, events, monkeypatch):
+    monkeypatch.delenv("LIBGL_ALWAYS_SOFTWARE", raising=False)
+    got = run_and_read_gl(store, tmp_path, events, "xfreerdp", under_wsl=True, has_x11=True)
+    assert got == "[unset]"
+
+
+def test_a_graphics_setting_the_user_made_is_kept(qapp, store, tmp_path, events, monkeypatch):
+    monkeypatch.setenv("LIBGL_ALWAYS_SOFTWARE", "0")
+    got = run_and_read_gl(store, tmp_path, events, "sdl-freerdp3", under_wsl=True, has_x11=False)
+    assert got == "[0]"
+
+
+def test_running_under_wsl_check(tmp_path):
+    from krdpc.launcher import running_under_wsl
+
+    missing = str(tmp_path / "none")
+    microsoft = tmp_path / "osrelease"
+    microsoft.write_text("6.6.87.2-microsoft-standard-WSL2\n")
+    plain = tmp_path / "plain"
+    plain.write_text("6.12.0-fedora\n")
+    assert running_under_wsl({"WSL_DISTRO_NAME": "Fedora"}, missing)
+    assert running_under_wsl({}, str(microsoft))
+    assert not running_under_wsl({}, str(plain))
+    assert not running_under_wsl({}, missing)

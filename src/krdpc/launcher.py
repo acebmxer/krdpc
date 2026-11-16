@@ -8,7 +8,7 @@ import sys
 from collections import deque
 from collections.abc import Callable
 
-from PySide6.QtCore import QObject, QProcess, Signal
+from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Signal
 
 from krdpc.certificate import parse_certificate
 from krdpc.command import CommandError, build_command
@@ -76,6 +76,11 @@ XFREERDP_NAMES = ("xfreerdp3", "xfreerdp")
 # asks about certificates in its own window). Same naming as above: the 3 name first.
 SDL_NAMES = ("sdl-freerdp3", "sdl-freerdp")
 
+# Under WSL, Mesa drives the Windows GPU through its `d3d12` driver, and the SDL client crashes
+# (segmentation fault) as soon as it draws its window. Software rendering avoids it, and a
+# remote desktop window does not need the GPU.
+_WSL_SDL_ENVIRONMENT = {"LIBGL_ALWAYS_SOFTWARE": "1"}
+
 _MISSING = (
     "xfreerdp was not found. Install the freerdp package, "
     "or set where it is in Preferences, then try again."
@@ -113,6 +118,17 @@ def x11_display_available(environ=os.environ) -> bool:
                 continue
             return True
     return False
+
+
+def running_under_wsl(environ=os.environ, osrelease: str = "/proc/sys/kernel/osrelease") -> bool:
+    """True inside Windows Subsystem for Linux."""
+    if environ.get("WSL_DISTRO_NAME") or environ.get("WSL_INTEROP"):
+        return True
+    try:
+        with open(osrelease) as handle:
+            return "microsoft" in handle.read().lower()
+    except OSError:
+        return False
 
 
 def explain_exit(code: int, program: str = "xfreerdp") -> str:
@@ -171,13 +187,16 @@ class Launcher(QObject):
         find_executable: Callable[[str], str | None] = shutil.which,
         parent: QObject | None = None,
         has_x11_display: Callable[[], bool] = lambda: True,
+        under_wsl: Callable[[], bool] = lambda: False,
     ) -> None:
-        """`has_x11_display` decides between xfreerdp and the SDL client; the app passes
-        `x11_display_available`."""
+        """`has_x11_display` decides between xfreerdp and the SDL client, and `under_wsl`
+        whether the SDL client needs software rendering; the app passes
+        `x11_display_available` and `running_under_wsl`."""
         super().__init__(parent)
         self._store = store
         self._find = find_executable
         self._has_x11_display = has_x11_display
+        self._under_wsl = under_wsl
         self._runs: list[_Run] = []
         self._stopping = False
 
@@ -240,6 +259,12 @@ class Launcher(QObject):
     def _start(self, profile: Profile, command: list[str]) -> None:
         process = QProcess(self)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        if os.path.basename(command[0]) in SDL_NAMES and self._under_wsl():
+            environment = QProcessEnvironment.systemEnvironment()
+            for name, value in _WSL_SDL_ENVIRONMENT.items():
+                if not environment.contains(name):  # a value the user set is kept
+                    environment.insert(name, value)
+            process.setProcessEnvironment(environment)
         run = _Run(profile, process)
         process.readyRead.connect(lambda: self._read(run))
         process.finished.connect(lambda code, status: self._finished(run, code, status))
