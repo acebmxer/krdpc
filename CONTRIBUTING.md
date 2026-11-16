@@ -4,11 +4,11 @@
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install ruff
+.venv/bin/pip install -e ".[dev]"
 ```
 
-The app's own dependencies (PySide6) are added to this section with the first
-code, in stage 2 of the roadmap.
+Run it with `.venv/bin/krdpc`. The tests draw the windows without a screen, so
+they need no display.
 
 ## Before opening a pull request
 
@@ -17,6 +17,7 @@ The same checks CI runs:
 ```bash
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
+.venv/bin/python -m pytest
 ```
 
 ## Conventions

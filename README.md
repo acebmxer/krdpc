@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/acebmxer/krdpc/actions/workflows/ci.yml/badge.svg)](https://github.com/acebmxer/krdpc/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Status: planning](https://img.shields.io/badge/status-planning-orange.svg)](#roadmap)
+[![Status: in development](https://img.shields.io/badge/status-in%20development-orange.svg)](#roadmap)
 [![Python](https://img.shields.io/badge/python-3-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Qt for Python](https://img.shields.io/badge/PySide6-Qt%206-41CD52?logo=qt&logoColor=white)](https://doc.qt.io/qtforpython-6/)
 [![KDE Plasma](https://img.shields.io/badge/KDE-Plasma-1D99F3?logo=kde&logoColor=white)](https://kde.org/plasma-desktop/)
@@ -14,7 +14,7 @@ remote computers and opens each one with FreeRDP's `xfreerdp`. It is laid out
 and behaves like Remmina's main window, but it is built with Qt and follows your
 KDE theme.
 
-**Status:** planning. No code yet.
+**Status:** in development. The list and the add/edit dialog work; connecting is next.
 
 ## Why
 
@@ -54,11 +54,12 @@ type the address and options every time. krdpc adds that screen and nothing else
 ## Roadmap
 
 1. Repository setup: licence, changelog, issue templates, CI. (done)
-2. Profile list and tabbed edit dialog.
+2. Profile list and tabbed edit dialog. (done)
 3. Connect: build the `xfreerdp` command from a profile and start it.
 4. Password box and KDE Wallet.
 5. Application menu entry (`.desktop` file).
-6. Tests and install documentation.
+6. Preferences page in the main menu.
+7. Tests and install documentation.
 
 ## Contributing
 

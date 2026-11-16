@@ -16,7 +16,7 @@ the state of the repository; leave the rest unticked with a note saying why.
       plumbing: CI config, templates, editor settings)
 - [ ] README and other documentation updated alongside the code
 - [ ] `ruff check .` and `ruff format --check .` pass
-- [ ] `python -m pytest` passes (once tests exist)
+- [ ] `python -m pytest` passes
 
 ## Testing
 
