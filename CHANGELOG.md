@@ -21,7 +21,9 @@ one with FreeRDP's `xfreerdp`.
   instead. A copy installed from a clone only says a new version is out. About krdpc now shows
   the exact version, beta number included (#6), and so does the right end of the main window's
   status bar, e.g. `krdpc 0.1.0-beta.2` (#9). The result of a check now always reaches the
-  window; before, it was often lost, so no update was ever offered (#10).
+  window; before, it was often lost, so no update was ever offered (#10). With no desktop
+  password box (Fedora under WSL), installing now stops at once and shows the command to run,
+  instead of waiting for a password typed into the terminal krdpc was started from (#14).
 - **Packages.** A `.rpm` for Fedora, a `.deb` for Debian 13 and Ubuntu 26.04 and newer, and a
   package for Arch Linux, each depending on the distribution's own FreeRDP 3, PySide6 and
   `keyring`. krdpc now also finds FreeRDP 3's `xfreerdp3` program, which is how Debian and

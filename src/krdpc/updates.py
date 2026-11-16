@@ -269,6 +269,16 @@ def pkexec() -> str | None:
     return shutil.which("pkexec")
 
 
+def pkexec_arguments(package_format: str, path: Path) -> list[str]:
+    """What to give pkexec to install `path`.
+
+    `--disable-internal-agent` stops pkexec asking for the password in the terminal krdpc was
+    started from, where nobody sees the question and the install waits forever. With no
+    desktop password box it now fails at once, and krdpc shows the command to run by hand.
+    """
+    return ["--disable-internal-agent", *install_command(package_format, path)]
+
+
 # pkexec's own exit codes: the password box was closed, or no permission was given.
 PKEXEC_DISMISSED = 126
 PKEXEC_REFUSED = 127

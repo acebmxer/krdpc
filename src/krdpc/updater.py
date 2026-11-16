@@ -239,7 +239,7 @@ class Updater(QObject):
             lambda error: self._install_did_not_start(process, error, path, package_format)
         )
         self._process = process
-        process.start(pkexec, updates.install_command(package_format, path))
+        process.start(pkexec, updates.pkexec_arguments(package_format, path))
 
     def _install_did_not_start(
         self, process: QProcess, error: QProcess.ProcessError, path: Path, package_format: str
@@ -274,7 +274,11 @@ class Updater(QObject):
                 f"krdpc was not updated. The downloaded package is kept in {path.parent}.",
             )
         elif code == updates.PKEXEC_REFUSED:
-            self._install_by_hand(package_format, path, "Permission to install was not given.")
+            self._install_by_hand(
+                package_format,
+                path,
+                "Permission to install was not given, or this desktop has no password box.",
+            )
         else:
             self._install_by_hand(
                 package_format, path, f"The installer stopped with code {code}.", output

@@ -455,7 +455,13 @@ def test_a_successful_install_asks_to_restart(window, tmp_path, monkeypatch):
     boxes, downloaded, log, restarts = run_update(
         window, tmp_path, monkeypatch, 0, answer=QMessageBox.StandardButton.Yes
     )
-    assert log.read_text().split() == ["dnf", "install", "-y", str(downloaded)]
+    assert log.read_text().split() == [
+        "--disable-internal-agent",
+        "dnf",
+        "install",
+        "-y",
+        str(downloaded),
+    ]
     assert boxes.shown == [
         ("question", "krdpc updated", "krdpc 0.2.0 is installed. Restart krdpc now to use it?")
     ]
@@ -478,6 +484,27 @@ def test_a_failed_install_shows_the_command_to_run_by_hand(window, tmp_path, mon
     assert "stopped with code 1" in text
     assert text.endswith(f"sudo dnf install {downloaded}")
     assert "Copy command" in buttons
+    assert downloaded.exists() and restarts == []
+
+
+def test_pkexec_never_asks_for_the_password_in_a_terminal():
+    from pathlib import Path
+
+    path = Path("/x/k.rpm")
+    for package_format in ("rpm", "deb", "arch"):
+        arguments = updates.pkexec_arguments(package_format, path)
+        assert arguments[0] == "--disable-internal-agent"
+        assert arguments[1:] == updates.install_command(package_format, path)
+
+
+def test_no_password_box_shows_the_command_to_run_by_hand(window, tmp_path, monkeypatch):
+    boxes, downloaded, _log, restarts = run_update(
+        window, tmp_path, monkeypatch, updates.PKEXEC_REFUSED
+    )
+    kind, title, text, _buttons = boxes.shown[0]
+    assert (kind, title) == ("box", "Update not installed")
+    assert "no password box" in text
+    assert text.endswith(f"sudo dnf install {downloaded}")
     assert downloaded.exists() and restarts == []
 
 
