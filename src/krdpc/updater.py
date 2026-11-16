@@ -29,12 +29,25 @@ class _Relay(QObject):
     progress = Signal(int, int)
 
 
+# Relays whose result is still on its way to the window. Qt drops a queued call once its
+# sender is gone, so each relay is kept here until its result has been delivered.
+_pending: set[_Relay] = set()
+
+
 def run_in_thread(
     work: Callable[[], object], done: Callable[[object], None], failed: Callable[[str], None]
 ) -> None:
     relay = _Relay()
-    relay.done.connect(done, Qt.ConnectionType.QueuedConnection)
-    relay.failed.connect(failed, Qt.ConnectionType.QueuedConnection)
+    _pending.add(relay)
+
+    def deliver(callback: Callable, value: object) -> None:
+        _pending.discard(relay)
+        callback(value)
+
+    relay.done.connect(lambda result: deliver(done, result), Qt.ConnectionType.QueuedConnection)
+    relay.failed.connect(
+        lambda message: deliver(failed, message), Qt.ConnectionType.QueuedConnection
+    )
 
     def body() -> None:
         try:
@@ -46,7 +59,6 @@ def run_in_thread(
         else:
             relay.done.emit(result)
 
-    # The relay must outlive the thread; it is kept by the closure until the thread ends.
     threading.Thread(target=body, name="krdpc-update", daemon=True).start()
 
 

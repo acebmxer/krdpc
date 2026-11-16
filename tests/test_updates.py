@@ -17,7 +17,7 @@ from krdpc.mainwindow import MainWindow
 from krdpc.passwords import PasswordStore
 from krdpc.preferences import Preferences, PreferencesStore
 from krdpc.preferencesdialog import PreferencesDialog
-from krdpc.updater import Updater
+from krdpc.updater import Updater, run_in_thread
 from krdpc.updates import Installed, Release, UpdateError
 
 BASE = "https://github.com/acebmxer/krdpc/releases/download"
@@ -570,3 +570,31 @@ def test_the_dialog_sets_the_update_preferences(qapp):
     dialog._include_betas.setChecked(True)
     chosen = dialog.preferences()
     assert (chosen.check_updates, chosen.include_betas) == (False, True)
+
+
+def wait_for(qapp, results, timeout_s=5.0):
+    """Run the event loop until a result arrives, as the window would."""
+    from PySide6.QtCore import QElapsedTimer
+
+    clock = QElapsedTimer()
+    clock.start()
+    while not results and clock.elapsed() < timeout_s * 1000:
+        qapp.processEvents()
+    return results
+
+
+@pytest.mark.parametrize("attempt", range(5))
+def test_a_result_from_the_background_thread_reaches_the_window(qapp, attempt):
+    """The thread ends right after sending; the result must still arrive (#10)."""
+    results = []
+    run_in_thread(lambda: "found", results.append, lambda m: results.append(("failed", m)))
+    assert wait_for(qapp, results) == ["found"]
+
+
+def test_a_failure_from_the_background_thread_reaches_the_window(qapp):
+    def broken():
+        raise UpdateError("Could not reach GitHub")
+
+    results = []
+    run_in_thread(broken, lambda r: results.append(r), lambda m: results.append(("failed", m)))
+    assert wait_for(qapp, results) == [("failed", "Could not reach GitHub")]
