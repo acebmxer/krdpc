@@ -73,7 +73,9 @@ class PreferencesDialog(QDialog):
         )
 
         self._xfreerdp = QLineEdit(preferences.xfreerdp_path)
-        self._xfreerdp.setPlaceholderText("Empty: use xfreerdp3 or xfreerdp from your PATH")
+        self._xfreerdp.setPlaceholderText(
+            "Empty: find FreeRDP on your PATH (xfreerdp, or sdl-freerdp without X11)"
+        )
         browse = QPushButton("Browse…")
         browse.clicked.connect(self._browse)
         program_row = QHBoxLayout()

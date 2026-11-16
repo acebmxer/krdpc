@@ -1,6 +1,8 @@
-"""Starting `xfreerdp` for a profile and reporting how it ended."""
+"""Starting FreeRDP (`xfreerdp`, or its SDL client without X11) and reporting how it ended."""
 
+import os
 import shutil
+import socket
 import sys
 from collections import deque
 from collections.abc import Callable
@@ -13,7 +15,7 @@ from krdpc.profile import Profile
 from krdpc.store import ProfileStore
 
 # Exit codes that mean the session simply ended: 0 success, 2 logged off,
-# 11 closed by the user (FreeRDP's XF_EXIT_CODE list).
+# 11 closed by the user (FreeRDP's XF_EXIT_CODE list; its SDL client uses the same numbers).
 NORMAL_EXIT_CODES = frozenset({0, 2, 11})
 
 _EXIT_MESSAGES = {
@@ -22,7 +24,7 @@ _EXIT_MESSAGES = {
     5: "Another connection took over this session.",
     7: "The remote computer refused the connection.",
     9: "Your account is not allowed to connect remotely.",
-    128: "xfreerdp did not understand one of the options. Check the extra arguments.",
+    128: "FreeRDP did not understand one of the options. Check the extra arguments.",
     131: "Could not connect. Check the address and that the computer is switched on.",
     132: "Sign-in was refused. Check the username, domain and password.",
     133: "No security method both sides accept. Try another Security setting on the Advanced tab.",
@@ -54,23 +56,66 @@ LOGIN_REFUSED_CODES = frozenset({132, 134, 154, 155})
 # where plain `xfreerdp` may be FreeRDP 2, which krdpc does not support. The 3 name goes first.
 XFREERDP_NAMES = ("xfreerdp3", "xfreerdp")
 
+# FreeRDP 3's SDL client draws on Wayland as well as X11, and takes the same options and
+# `/args-from:stdin`. It is used when there is no X11 display for xfreerdp: under WSL when
+# Xwayland is not running, or a Wayland desktop without Xwayland. xfreerdp stays the first
+# choice wherever X11 works, because krdpc reads its certificate prompt (the SDL client
+# asks about certificates in its own window). Same naming as above: the 3 name first.
+SDL_NAMES = ("sdl-freerdp3", "sdl-freerdp")
+
 _MISSING = (
     "xfreerdp was not found. Install the freerdp package, "
     "or set where it is in Preferences, then try again."
+)
+_NO_DISPLAY = (
+    "There is no X11 display for xfreerdp, and FreeRDP's SDL client, which works without "
+    "one, was not found. Install it (Fedora and Arch: package freerdp; Debian and Ubuntu: "
+    "package freerdp3-sdl), then try again."
 )
 _TAIL_LINES = 12
 _OUTPUT_LIMIT = 200_000  # characters of xfreerdp output kept, to find the certificate in
 
 
-def explain_exit(code: int) -> str:
-    """A plain sentence for an xfreerdp exit code that is not a normal end."""
+def x11_display_available(environ=os.environ) -> bool:
+    """True if `$DISPLAY` names an X11 display that answers.
+
+    A local display (`:0`, `unix:0.0`) is checked by connecting to its socket, as an X11
+    program would; a remote one (`host:0`) is trusted as set. Under WSL, `DISPLAY=:0` is set
+    even when Xwayland has crashed and its socket is gone.
+    """
+    display = environ.get("DISPLAY", "").strip()
+    host, _colon, number = display.rpartition(":")
+    number = number.split(".")[0]
+    if not display or not number.isdigit():
+        return False
+    if host not in ("", "unix"):
+        return True
+    path = f"/tmp/.X11-unix/X{number}"
+    for address in (path, "\0" + path):  # the socket file, then Linux's abstract socket
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+            probe.settimeout(1)
+            try:
+                probe.connect(address)
+            except OSError:
+                continue
+            return True
+    return False
+
+
+def explain_exit(code: int, program: str = "xfreerdp") -> str:
+    """A plain sentence for a FreeRDP exit code that is not a normal end."""
     if code in _EXIT_MESSAGES:
         return _EXIT_MESSAGES[code]
     if 16 <= code <= 26:
         return "The remote computer reported a licensing problem."
     if 32 <= code <= 127:
         return "The remote computer reported a problem."
-    return f"xfreerdp stopped with code {code}."
+    return f"{program} stopped with code {code}."
+
+
+def _program(run: "_Run") -> str:
+    """The FreeRDP program's name, as messages show it."""
+    return os.path.basename(run.process.program()) or "FreeRDP"
 
 
 class _Run:
@@ -103,10 +148,14 @@ class Launcher(QObject):
         store: ProfileStore,
         find_executable: Callable[[str], str | None] = shutil.which,
         parent: QObject | None = None,
+        has_x11_display: Callable[[], bool] = lambda: True,
     ) -> None:
+        """`has_x11_display` decides between xfreerdp and the SDL client; the app passes
+        `x11_display_available`."""
         super().__init__(parent)
         self._store = store
         self._find = find_executable
+        self._has_x11_display = has_x11_display
         self._runs: list[_Run] = []
         self._stopping = False
 
@@ -125,10 +174,15 @@ class Launcher(QObject):
             run.process.waitForFinished(2000)
 
     def connect_to(self, profile: Profile, password: str = "", gateway_password: str = "") -> None:
-        """Start a connection. The passwords go to xfreerdp through a pipe, never its arguments."""
-        executable = next((found for name in XFREERDP_NAMES if (found := self._find(name))), None)
+        """Start a connection. The passwords go to FreeRDP through a pipe, never its arguments."""
+        if self._has_x11_display():
+            # xfreerdp first; the SDL client if only that is installed.
+            names, missing = XFREERDP_NAMES + SDL_NAMES, _MISSING
+        else:
+            names, missing = SDL_NAMES, _NO_DISPLAY
+        executable = next((found for name in names if (found := self._find(name))), None)
         if executable is None:
-            self.failed.emit(profile.id, _MISSING)
+            self.failed.emit(profile.id, missing)
             return
         try:
             command = build_command(profile, executable, password, gateway_password or None)
@@ -159,7 +213,7 @@ class Launcher(QObject):
         process.finished.connect(done)
         process.start("/bin/sh", ["-c", profile.before_command])
 
-    # ---- xfreerdp ----------------------------------------------------------
+    # ---- FreeRDP ----------------------------------------------------------
 
     def _start(self, profile: Profile, command: list[str]) -> None:
         process = QProcess(self)
@@ -206,12 +260,12 @@ class Launcher(QObject):
             self.ended.emit(profile.id)
             return
         if status == QProcess.ExitStatus.CrashExit:
-            problem = "xfreerdp stopped unexpectedly."
+            problem = f"{_program(run)} stopped unexpectedly."
         elif code in NORMAL_EXIT_CODES:
             self.ended.emit(profile.id)
             return
         else:
-            problem = explain_exit(code)
+            problem = explain_exit(code, _program(run))
         certificate = parse_certificate(run.text)
         if certificate is not None:
             self.certificate_untrusted.emit(profile.id, certificate)

@@ -228,3 +228,112 @@ def test_explain_exit():
     assert "cancelled" in explain_exit(145)
     assert "licensing" in explain_exit(20)
     assert explain_exit(250) == "xfreerdp stopped with code 250."
+
+
+def fake_program(tmp_path, name):
+    folder = tmp_path / name
+    folder.mkdir()
+    return fake_xfreerdp(folder)
+
+
+def test_without_an_x11_display_the_sdl_client_is_used(qapp, store, tmp_path, events):
+    """Under WSL with Xwayland down, xfreerdp cannot open a window; FreeRDP's SDL client can."""
+    programs = {"xfreerdp": fake_program(tmp_path, "x"), "sdl-freerdp": fake_program(tmp_path, "s")}
+    launcher = Launcher(store, find_executable=programs.get, has_x11_display=lambda: False)
+    launcher.ended.connect(events["ended"].append)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["ended"])
+    assert (tmp_path / "s" / "args").exists()
+    assert not (tmp_path / "x" / "args").exists()
+
+
+def test_sdl_freerdp3_is_preferred_over_sdl_freerdp(qapp, store, tmp_path, events):
+    asked = []
+
+    def find(name):
+        asked.append(name)
+        return fake_xfreerdp(tmp_path) if name == "sdl-freerdp3" else None
+
+    launcher = Launcher(store, find_executable=find, has_x11_display=lambda: False)
+    launcher.ended.connect(events["ended"].append)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["ended"])
+    assert asked == ["sdl-freerdp3"]
+
+
+def test_with_an_x11_display_xfreerdp_stays_first(qapp, store, tmp_path, events):
+    programs = {"xfreerdp": fake_program(tmp_path, "x"), "sdl-freerdp": fake_program(tmp_path, "s")}
+    launcher = Launcher(store, find_executable=programs.get, has_x11_display=lambda: True)
+    launcher.ended.connect(events["ended"].append)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["ended"])
+    assert (tmp_path / "x" / "args").exists()
+    assert not (tmp_path / "s" / "args").exists()
+
+
+def test_the_sdl_client_is_used_when_it_is_the_only_one_installed(qapp, store, tmp_path, events):
+    launcher = Launcher(
+        store,
+        find_executable={"sdl-freerdp3": fake_xfreerdp(tmp_path)}.get,
+        has_x11_display=lambda: True,
+    )
+    launcher.ended.connect(events["ended"].append)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["ended"])
+    assert (tmp_path / "args").exists()
+
+
+def test_no_x11_display_and_no_sdl_client_is_a_plain_message(qapp, store, tmp_path, events):
+    launcher = Launcher(
+        store,
+        find_executable={"xfreerdp": fake_xfreerdp(tmp_path)}.get,
+        has_x11_display=lambda: False,
+    )
+    launcher.failed.connect(lambda pid, msg: events["failed"].append(msg))
+    launcher.connect_to(saved(store))
+    assert "no X11 display" in events["failed"][0]
+    assert "freerdp3-sdl" in events["failed"][0]
+    assert not (tmp_path / "args").exists()
+
+
+def test_messages_name_the_program_that_ran(qapp, store, tmp_path, events):
+    script = tmp_path / "sdl-freerdp"
+    script.write_text("#!/bin/sh\ncat > /dev/null\nexit 250\n")
+    script.chmod(0o755)
+    launcher = Launcher(
+        store, find_executable={"sdl-freerdp": str(script)}.get, has_x11_display=lambda: False
+    )
+    launcher.failed.connect(lambda pid, msg: events["failed"].append(msg))
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["failed"])
+    assert events["failed"][0].startswith("sdl-freerdp stopped with code 250.")
+
+
+def test_x11_display_check(tmp_path, monkeypatch):
+    import socket
+
+    from krdpc import launcher
+
+    assert not launcher.x11_display_available({})
+    assert not launcher.x11_display_available({"DISPLAY": "nonsense"})
+    assert launcher.x11_display_available({"DISPLAY": "remotehost:10.0"})
+    # A local display counts only if its socket answers.
+    sockets = tmp_path / "x11"
+    sockets.mkdir()
+    real_connect = socket.socket.connect
+
+    def connect(self, address):
+        if isinstance(address, str) and address.startswith("/tmp/.X11-unix/"):
+            address = str(sockets / address.rsplit("/", 1)[1])
+        return real_connect(self, address)
+
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    assert not launcher.x11_display_available({"DISPLAY": ":7"})
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(sockets / "X7"))
+    server.listen()
+    try:
+        assert launcher.x11_display_available({"DISPLAY": ":7"})
+        assert launcher.x11_display_available({"DISPLAY": "unix:7.0"})
+    finally:
+        server.close()

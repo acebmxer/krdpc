@@ -7,7 +7,7 @@ Priority: optional
 Section: net
 Homepage: https://github.com/acebmxer/krdpc
 Depends: python3 (>= 3.12), python3-pyside6.qtcore, python3-pyside6.qtgui, python3-pyside6.qtwidgets, python3-keyring, freerdp3-x11, libqt6svg6
-Recommends: breeze-icon-theme
+Recommends: breeze-icon-theme, freerdp3-sdl
 Description: native KDE list of remote computers that opens each with FreeRDP
  krdpc is a small native KDE desktop app, laid out like Remmina's main window.
  It keeps a list of your remote computers, asks for the password (or remembers

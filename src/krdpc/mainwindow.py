@@ -40,7 +40,7 @@ from krdpc import autostart, theme, updates
 from krdpc.certificate import CertificateInfo, format_thumbprint
 from krdpc.editdialog import EditDialog
 from krdpc.icons import symbolic_icon
-from krdpc.launcher import Launcher
+from krdpc.launcher import Launcher, x11_display_available
 from krdpc.passworddialog import PasswordDialog
 from krdpc.passwords import PasswordStore, PasswordStoreError, gateway_key, password_key
 from krdpc.preferences import PreferencesStore, is_program
@@ -122,7 +122,10 @@ class MainWindow(QMainWindow):
         # What each computer was last connected with, to try again after a certificate is trusted.
         self._retry: dict[str, tuple[str, str]] = {}
         self._launcher = launcher or Launcher(
-            store, find_executable=self._find_xfreerdp, parent=self
+            store,
+            find_executable=self._find_xfreerdp,
+            parent=self,
+            has_x11_display=x11_display_available,
         )
         self._launcher.started.connect(self._connection_started)
         self._launcher.failed.connect(self._show_failure)

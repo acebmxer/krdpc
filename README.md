@@ -59,7 +59,9 @@ type the address and options every time. krdpc adds that screen and nothing else
 
 - Linux with KDE Plasma (Fedora 45 is the first target).
 - FreeRDP 3, which provides `xfreerdp` (Fedora and Arch: package `freerdp`; Debian and Ubuntu:
-  package `freerdp3-x11`, which provides `xfreerdp3`). FreeRDP 2 is not supported.
+  package `freerdp3-x11`, which provides `xfreerdp3`). FreeRDP 2 is not supported. Where there
+  is no X11 display, krdpc uses FreeRDP's SDL client instead (`sdl-freerdp`; Fedora and Arch:
+  in `freerdp`; Debian and Ubuntu: package `freerdp3-sdl`).
 - Python 3, PySide6 (Qt 6) and `keyring` (Fedora: `python3-pyside6`, `python3-keyring`).
 - KDE Wallet, if you want passwords remembered.
 
@@ -134,7 +136,8 @@ passwords stay in KDE Wallet under the name `krdpc`; remove them there.
 2. Double-click it (or right-click and choose Connect). krdpc asks for the
    password; tick **Remember in KDE Wallet** to be asked only once.
 3. The first time a computer shows a certificate `xfreerdp` cannot verify, krdpc
-   shows it and asks whether to trust it.
+   shows it and asks whether to trust it. (Without an X11 display, FreeRDP's SDL
+   client asks in its own window instead.)
 4. Right-click a computer to edit, duplicate or delete it. **Ctrl+F** searches.
 5. **Preferences** is in the menu at the top right.
 
@@ -142,6 +145,11 @@ passwords stay in KDE Wallet under the name `krdpc`; remove them there.
 
 - **"xfreerdp was not found."** Install the `freerdp` package, or point
   Preferences at the program.
+- **"There is no X11 display for xfreerdp".** xfreerdp needs X11 (on Wayland,
+  through Xwayland). Under WSL, WSL's X11 display can stop, and restarting WSL
+  does not always bring it back. krdpc then uses FreeRDP's SDL client, which
+  works on Wayland: install `freerdp` (Fedora, Arch) or `freerdp3-sdl` (Debian,
+  Ubuntu).
 - **The password is asked every time.** The wallet may be locked or missing.
   krdpc says so in the status bar and asks instead. A refused sign-in also makes
   krdpc forget the saved password.

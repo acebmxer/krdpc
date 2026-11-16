@@ -22,7 +22,7 @@ class Preferences:
     icon_size: str = "medium"
     confirm_delete: bool = True
     remember_window: bool = True
-    xfreerdp_path: str = ""  # empty: use the first xfreerdp found on the PATH
+    xfreerdp_path: str = ""  # empty: find xfreerdp (or sdl-freerdp without X11) on the PATH
     show_tray: bool = False
     close_to_tray: bool = False  # only with the tray icon
     start_minimised: bool = False  # only with the tray icon

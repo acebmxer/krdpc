@@ -68,7 +68,11 @@ one with FreeRDP's `xfreerdp`.
   before-command stops the connection. Closing krdpc while connections are open asks first, and
   so does opening a second connection to a computer that is already open. Problems are shown one
   at a time, with `xfreerdp`'s log under **Show Details**, and a status-bar message confirms
-  that a connection started. Ctrl+C in the terminal ends the connections and quits.
+  that a connection started. Ctrl+C in the terminal ends the connections and quits. When there is
+  no X11 display for `xfreerdp` (such as Fedora under WSL when WSL's X11 display has stopped),
+  krdpc starts FreeRDP's SDL client (`sdl-freerdp`), which also works on Wayland; it asks about
+  untrusted certificates in its own window. The `.deb` recommends `freerdp3-sdl`, which provides
+  it on Debian and Ubuntu (#12).
 - **The list of computers.** The main window shows saved computers in a sortable table
   (Name, Group, Labels, Server, Plugin, Last used) with a search row, a toolbar and a "Total N
   items." footer, laid out like Remmina's main window and built with Qt so it follows your KDE
