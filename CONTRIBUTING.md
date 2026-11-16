@@ -44,7 +44,8 @@ usernames in tests, fixtures and screenshots.
 Work happens on `dev` and reaches `main` through a pull request. The changelog
 version section is part of the branch the pull request carries. The release is
 made by the **Release** workflow (`.github/workflows/release.yml`); nobody tags by
-hand.
+hand. After each merge, the **Sync dev** workflow (`.github/workflows/sync-dev.yml`)
+moves `dev` up to `main`, so GitHub's merge commit does not leave `dev` behind.
 
 The version is kept in one place, `src/krdpc/__init__.py`; `scripts/package_version.sh`
 prints it and every package recipe takes it from there.
