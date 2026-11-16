@@ -1,5 +1,7 @@
 # krdpc
 
+[![CI](https://github.com/acebmxer/krdpc/actions/workflows/ci.yml/badge.svg)](https://github.com/acebmxer/krdpc/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Status: planning](https://img.shields.io/badge/status-planning-orange.svg)](#roadmap)
 [![Python](https://img.shields.io/badge/python-3-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Qt for Python](https://img.shields.io/badge/PySide6-Qt%206-41CD52?logo=qt&logoColor=white)](https://doc.qt.io/qtforpython-6/)
@@ -51,7 +53,7 @@ type the address and options every time. krdpc adds that screen and nothing else
 
 ## Roadmap
 
-1. Repository setup: licence, changelog, issue templates, CI.
+1. Repository setup: licence, changelog, issue templates, CI. (done)
 2. Profile list and tabbed edit dialog.
 3. Connect: build the `xfreerdp` command from a profile and start it.
 4. Password box and KDE Wallet.
@@ -60,5 +62,5 @@ type the address and options every time. krdpc adds that screen and nothing else
 
 ## Contributing
 
-Not open yet. Issues and pull requests will be welcome once the repository has
-its templates and CI.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Pull requests target `dev`. To report a
+security problem, see [SECURITY.md](SECURITY.md).
