@@ -144,6 +144,11 @@ passwords stay in KDE Wallet under the name `krdpc`; remove them there.
 - **The password is asked every time.** The wallet may be locked or missing.
   krdpc says so in the status bar and asks instead. A refused sign-in also makes
   krdpc forget the saved password.
+- **"No wallet is running."** krdpc found no wallet to keep passwords in. Without
+  a desktop session (for example Fedora under WSL) krdpc starts KDE Wallet itself
+  if it is installed, and KDE Wallet asks you to create a wallet the first time.
+  Install `kf6-kwallet` (Fedora), `kwallet6` (Debian, Ubuntu) or `kwallet`
+  (Arch), or another wallet that offers the Secret Service, and try again.
 - **The window looks plain, not like Plasma.** The PySide6 from PyPI was
   installed. Remove it and use the Fedora package. Without a KDE desktop (for
   example Fedora under WSL) Qt has no theme to follow: choose **Light** or
