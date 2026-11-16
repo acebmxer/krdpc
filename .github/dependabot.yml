@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # The GitHub Actions used in CI.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - "dependencies"

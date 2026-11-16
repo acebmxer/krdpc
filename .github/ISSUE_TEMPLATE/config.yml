@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: FreeRDP or the remote desktop itself
+    url: https://github.com/FreeRDP/FreeRDP/issues
+    about: krdpc only starts xfreerdp. Problems inside the connection (graphics, sound, login to the remote computer) usually belong with FreeRDP.
+  - name: Security vulnerability
+    url: https://github.com/acebmxer/krdpc/security
+    about: Report privately through the Security tab, not as a public issue.

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=krdpc
+GenericName=Remote Desktop Client
+Comment=Open your saved remote computers with FreeRDP
+Exec=krdpc
+Icon=krdpc
+Terminal=false
+Categories=Network;RemoteAccess;
+Keywords=rdp;remote desktop;freerdp;xfreerdp;connect;
+StartupWMClass=krdpc

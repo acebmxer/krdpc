@@ -1,0 +1,26 @@
+# Built by scripts/build_package.sh, which sets KRDPC_PKGVER (0.1.0, or 0.1.0_beta.1 for a
+# beta) and KRDPC_SRCVER (the version in src/krdpc/__init__.py).
+pkgname=krdpc
+pkgver=${KRDPC_PKGVER:?set KRDPC_PKGVER}
+pkgrel=1
+pkgdesc='A native KDE app that keeps a list of remote computers and opens each with FreeRDP'
+arch=('any')
+url='https://github.com/acebmxer/krdpc'
+license=('MIT')
+depends=('python' 'pyside6' 'python-keyring' 'freerdp' 'qt6-svg')
+makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+source=("krdpc-${KRDPC_SRCVER:?set KRDPC_SRCVER}.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "krdpc-${KRDPC_SRCVER}"
+    python -m build --wheel --no-isolation
+}
+
+package() {
+    cd "krdpc-${KRDPC_SRCVER}"
+    python -m installer --destdir="$pkgdir" dist/*.whl
+    install -Dm644 data/krdpc.desktop "$pkgdir/usr/share/applications/krdpc.desktop"
+    install -Dm644 src/krdpc/krdpc.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/krdpc.svg"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
