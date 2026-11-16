@@ -14,7 +14,7 @@ remote computers and opens each one with FreeRDP's `xfreerdp`. It is laid out
 and behaves like Remmina's main window, but it is built with Qt and follows your
 KDE theme.
 
-**Status:** in development. The list, the add/edit dialog, connecting, the password box and the certificate dialog work.
+**Status:** in development. The list, the add/edit dialog, connecting, the password box, the certificate dialog and Preferences work.
 
 ## Why
 
@@ -39,6 +39,9 @@ type the address and options every time. krdpc adds that screen and nothing else
 - Ask before trusting a certificate `xfreerdp` cannot verify, and remember your
   answer for that computer.
 - Keep each profile as a plain-text file in `~/.config/krdpc/`.
+- Set a few preferences: icon size, whether to confirm deleting, remembering the
+  window layout, where `xfreerdp` is, a system tray icon (with closing to the tray
+  and starting hidden), and starting at login.
 - Show a plain error if `xfreerdp` is missing or exits with an error.
 
 ## What it will not do
@@ -78,7 +81,7 @@ krdpc then appears in the application menu under Network. To remove it:
 3. Connect: build the `xfreerdp` command from a profile and start it. (done)
 4. Password box and KDE Wallet. (done)
 5. Application menu entry (`.desktop` file). (done)
-6. Preferences page in the main menu.
+6. Preferences page in the main menu. (done)
 7. Tests and install documentation.
 
 ## Contributing

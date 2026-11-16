@@ -12,6 +12,15 @@ one with FreeRDP's `xfreerdp`.
 
 ### Added
 
+- **Preferences.** **Preferences…** in the main menu (Ctrl+,) sets the size of the icons in the
+  list (small, medium or large), whether deleting a computer asks first, whether krdpc remembers
+  its window size and column layout between runs, and which `xfreerdp` to use instead of the
+  first one found on your PATH. They are kept in `~/.config/krdpc/krdpc.conf`.
+- **System tray.** Preferences can show a krdpc icon in the system tray: click it to show or hide
+  the window, right-click for New computer and Quit. With it on you can also have closing the
+  window keep krdpc running in the tray (open connections stay open; Quit really quits) and start
+  krdpc with the window hidden. **Start krdpc when I log in** adds or removes
+  `~/.config/autostart/krdpc.desktop`.
 - **Application menu entry.** A `krdpc.desktop` file and an icon, so krdpc appears in the KDE
   application menu (Network) and can be pinned to the taskbar. krdpc's window shows the same
   icon. The README says how to install them.

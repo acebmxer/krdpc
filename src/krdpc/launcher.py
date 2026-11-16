@@ -50,7 +50,10 @@ _EXIT_MESSAGES = {
 # Exit codes for a refused sign-in: a remembered password that gets one is forgotten.
 LOGIN_REFUSED_CODES = frozenset({132, 134, 154, 155})
 
-_MISSING = "xfreerdp was not found. Install the freerdp package, then try again."
+_MISSING = (
+    "xfreerdp was not found. Install the freerdp package, "
+    "or set where it is in Preferences, then try again."
+)
 _TAIL_LINES = 12
 _OUTPUT_LIMIT = 200_000  # characters of xfreerdp output kept, to find the certificate in
 

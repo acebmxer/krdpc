@@ -1,6 +1,7 @@
 """The main window: a searchable, sortable list of saved computers."""
 
 import dataclasses
+import shutil
 from collections import deque
 from contextlib import contextmanager
 
@@ -8,6 +9,7 @@ from PySide6.QtCore import QModelIndex, QPoint, QSize, QSortFilterProxyModel, Qt
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -16,6 +18,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QSizePolicy,
+    QSystemTrayIcon,
     QToolBar,
     QToolButton,
     QTreeView,
@@ -23,13 +26,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from krdpc import __version__
+from krdpc import __version__, autostart
 from krdpc.certificate import CertificateInfo, format_thumbprint
 from krdpc.editdialog import EditDialog
 from krdpc.icons import symbolic_icon
 from krdpc.launcher import Launcher
 from krdpc.passworddialog import PasswordDialog
 from krdpc.passwords import PasswordStore, PasswordStoreError, gateway_key, password_key
+from krdpc.preferences import PreferencesStore, is_program
+from krdpc.preferencesdialog import PreferencesDialog
 from krdpc.profile import PROTOCOL, Profile
 from krdpc.store import ProfileStore
 
@@ -37,7 +42,6 @@ COLUMNS = ("Name", "Group", "Labels", "Server", "Plugin", "Last used")
 COL_NAME, COL_GROUP, COL_LABELS, COL_SERVER, COL_PLUGIN, COL_LAST_USED = range(6)
 _SEARCHED = (COL_NAME, COL_GROUP, COL_LABELS, COL_SERVER)
 ID_ROLE = Qt.ItemDataRole.UserRole
-ICON_SIZE = 24  # the icon beside each computer's name, in pixels
 
 
 class ProfileFilter(QSortFilterProxyModel):
@@ -90,13 +94,21 @@ class MainWindow(QMainWindow):
         parent: QWidget | None = None,
         launcher: Launcher | None = None,
         passwords: PasswordStore | None = None,
+        preferences: PreferencesStore | None = None,
     ) -> None:
         super().__init__(parent)
         self._store = store
+        self._preferences_store = preferences or PreferencesStore(store.directory)
+        self._preferences = self._preferences_store.load()
+        self._tray: QSystemTrayIcon | None = None
+        self._tray_toggle: QAction | None = None
+        self._quitting = False
         self._passwords = passwords or PasswordStore()
         # What each computer was last connected with, to try again after a certificate is trusted.
         self._retry: dict[str, tuple[str, str]] = {}
-        self._launcher = launcher or Launcher(store, parent=self)
+        self._launcher = launcher or Launcher(
+            store, find_executable=self._find_xfreerdp, parent=self
+        )
         self._launcher.started.connect(self._connection_started)
         self._launcher.failed.connect(self._show_failure)
         self._launcher.certificate_untrusted.connect(self._ask_about_certificate)
@@ -136,7 +148,6 @@ class MainWindow(QMainWindow):
         self._view.setModel(self._proxy)
         self._view.setRootIsDecorated(False)
         self._view.setUniformRowHeights(True)
-        self._view.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
         self._view.setAlternatingRowColors(True)
         self._view.setSortingEnabled(True)
         self._view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -165,6 +176,8 @@ class MainWindow(QMainWindow):
         self.reload()
         for column, width in enumerate((180, 80, 80, 120, 55, 160)):
             self._view.setColumnWidth(column, width)
+        self._apply_preferences()
+        self._restore_window()
 
     # ---- building the window ---------------------------------------------
 
@@ -190,9 +203,11 @@ class MainWindow(QMainWindow):
         self.duplicate_action.triggered.connect(lambda: self.duplicate_profile(self.selected_id()))
         self.delete_action = action("Delete…", "edit-delete", QKeySequence.StandardKey.Delete)
         self.delete_action.triggered.connect(lambda: self.delete_profile(self.selected_id()))
+        self.preferences_action = action("Preferences…", "configure", "Ctrl+,")
+        self.preferences_action.triggered.connect(self.show_preferences)
         self.about_action = action("About krdpc", "help-about", slot=self._about)
         self.quit_action = action("Quit", "application-exit", QKeySequence.StandardKey.Quit)
-        self.quit_action.triggered.connect(self.close)
+        self.quit_action.triggered.connect(self.quit)
         for each in (
             self.connect_action,
             self.edit_action,
@@ -210,6 +225,7 @@ class MainWindow(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         bar.addWidget(spacer)
         menu = QMenu(self)
+        menu.addAction(self.preferences_action)
         menu.addAction(self.about_action)
         menu.addSeparator()
         menu.addAction(self.quit_action)
@@ -468,6 +484,11 @@ class MainWindow(QMainWindow):
         self._next_failure()
 
     def closeEvent(self, event) -> None:
+        if self.has_tray() and self._preferences.close_to_tray and not self._quitting:
+            self._save_window()
+            self.hide()
+            event.ignore()
+            return
         count = self._launcher.active_count()
         if count:
             answer = QMessageBox.question(
@@ -483,7 +504,111 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
             self._launcher.stop_all()
+        self._save_window()
         event.accept()
+        QApplication.quit()
+
+    # ---- preferences ------------------------------------------------------
+
+    def show_preferences(self) -> None:
+        dialog = PreferencesDialog(self._preferences, self)
+        if dialog.exec() == PreferencesDialog.DialogCode.Accepted:
+            before = self._preferences
+            self._preferences = dialog.preferences()
+            self._preferences_store.save(self._preferences)
+            self._apply_preferences()
+            if self._preferences.start_at_login != before.start_at_login:
+                self._apply_autostart()
+
+    def _apply_preferences(self) -> None:
+        pixels = self._preferences.icon_pixels()
+        self._view.setIconSize(QSize(pixels, pixels))
+        self._update_tray()
+
+    def _apply_autostart(self) -> None:
+        try:
+            autostart.set_enabled(self._preferences.start_at_login)
+        except OSError as error:
+            QMessageBox.warning(self, "Start at login", f"Could not change it: {error}")
+
+    # ---- the system tray ----------------------------------------------------
+
+    def _update_tray(self) -> None:
+        wanted = self._preferences.show_tray and QSystemTrayIcon.isSystemTrayAvailable()
+        if wanted and self._tray is None:
+            self._tray = QSystemTrayIcon(self.windowIcon(), self)
+            self._tray.setToolTip("krdpc")
+            menu = QMenu(self)
+            self._tray_toggle = menu.addAction("Show krdpc", self.toggle_window)
+            menu.addAction(self.new_action.icon(), "New computer", self._new_from_tray)
+            menu.addSeparator()
+            menu.addAction(self.quit_action)
+            menu.aboutToShow.connect(self._update_tray_menu)
+            self._tray.setContextMenu(menu)
+            self._tray.activated.connect(self._tray_activated)
+            self._tray.show()
+        elif not wanted and self._tray is not None:
+            self._tray.hide()
+            self._tray.deleteLater()
+            self._tray = None
+
+    def has_tray(self) -> bool:
+        return self._tray is not None
+
+    def starts_hidden(self) -> bool:
+        """True if krdpc should start out of sight, in the tray."""
+        return self.has_tray() and self._preferences.start_minimised
+
+    def toggle_window(self) -> None:
+        if self.isVisible() and not self.isMinimized():
+            self.hide()
+        else:
+            self.showNormal()
+            self.raise_()
+            self.activateWindow()
+
+    def _tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self.toggle_window()
+
+    def _update_tray_menu(self) -> None:
+        shown = self.isVisible() and not self.isMinimized()
+        self._tray_toggle.setText("Hide krdpc" if shown else "Show krdpc")
+
+    def _new_from_tray(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.new_profile()
+
+    def quit(self) -> bool:
+        """Really quit, even with "closing keeps krdpc in the tray" on."""
+        self._quitting = True
+        closed = self.close()
+        if not closed:
+            self._quitting = False
+        return closed
+
+    def _find_xfreerdp(self, name: str) -> str | None:
+        """The xfreerdp chosen in Preferences, or the first one on the PATH."""
+        chosen = self._preferences.xfreerdp_path
+        if chosen:
+            return chosen if is_program(chosen) else None
+        return shutil.which(name)
+
+    def _restore_window(self) -> None:
+        if not self._preferences.remember_window:
+            return
+        saved = self._preferences_store.window()
+        if saved is not None:
+            geometry, columns = saved
+            self.restoreGeometry(geometry)
+            self._view.header().restoreState(columns)
+
+    def _save_window(self) -> None:
+        if self._preferences.remember_window:
+            self._preferences_store.save_window(
+                self.saveGeometry(), self._view.header().saveState()
+            )
 
     def new_profile(self) -> None:
         self._edit(Profile())
@@ -511,14 +636,17 @@ class MainWindow(QMainWindow):
         if not profile_id:
             return
         name = self._store.get(profile_id).name
-        answer = QMessageBox.question(
-            self,
-            "Delete computer",
-            f"Delete “{name}”? Its saved settings are removed.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if answer == QMessageBox.StandardButton.Yes:
+        confirmed = not self._preferences.confirm_delete  # not asked: go straight ahead
+        if self._preferences.confirm_delete:
+            answer = QMessageBox.question(
+                self,
+                "Delete computer",
+                f"Delete “{name}”? Its saved settings are removed.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            confirmed = answer == QMessageBox.StandardButton.Yes
+        if confirmed:
             self._store.delete(profile_id)
             self._forget_passwords(profile_id)
             self.reload()

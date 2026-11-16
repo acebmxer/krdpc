@@ -50,3 +50,11 @@ def wallet(monkeypatch):
     monkeypatch.setattr(keyring, "set_password", memory.set_password)
     monkeypatch.setattr(keyring, "delete_password", memory.delete_password)
     return memory
+
+
+@pytest.fixture(autouse=True)
+def config_home(tmp_path, monkeypatch):
+    """No test ever writes to the real ~/.config (autostart entries, settings)."""
+    home = tmp_path / "xdg-config"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home))
+    return home
