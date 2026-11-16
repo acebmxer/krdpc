@@ -13,6 +13,7 @@ def test_minimal_profile():
         "xfreerdp",
         "/v:10.0.0.5",
         "/t:Dev Fedora",
+        "/d:",
         "/dynamic-resolution",
         "-wallpaper",
         "+clipboard",
@@ -24,10 +25,29 @@ def test_executable_is_the_first_argument():
     assert build_command(make(), "/usr/bin/xfreerdp")[0] == "/usr/bin/xfreerdp"
 
 
-def test_credentials_and_no_password_ever():
+def test_credentials():
     args = build_command(make(username="nick", domain="CORP"))
     assert "/u:nick" in args and "/d:CORP" in args
-    assert not [a for a in args if a.startswith(("/p", "/gateway:p"))]
+
+
+def test_no_password_unless_given():
+    assert not [a for a in build_command(make()) if a.startswith("/p")]
+    assert "/p:s3cret" in build_command(make(), password="s3cret")
+    assert "/p:" in build_command(make(), password="")  # a deliberately blank password
+
+
+def test_passwords_may_not_contain_line_breaks():
+    with pytest.raises(CommandError, match="line break"):
+        build_command(make(), password="a\nb")
+    with pytest.raises(CommandError, match="line break"):
+        build_command(make(gateway_server="g"), gateway_password="a\rb")
+
+
+def test_a_trusted_certificate_is_accepted_by_its_fingerprint():
+    thumb = "ab" * 32
+    assert f"/cert:fingerprint:sha256:{thumb}" in build_command(make(trusted_certificate=thumb))
+    both = build_command(make(trusted_certificate=thumb, ignore_certificate=True))
+    assert "/cert:ignore" in both and not [a for a in both if "fingerprint" in a]
 
 
 def test_fixed_size_replaces_dynamic_resolution():
@@ -125,6 +145,10 @@ def test_gateway():
     )
     assert "/gateway:g:gw.example.com,u:u,d:D" in args
     assert "/gateway:g:gw.example.com" in build_command(make(gateway_server="gw.example.com"))
+    with_password = build_command(make(gateway_server="gw"), gateway_password="pw")
+    assert "/gateway:g:gw,p:pw" in with_password
+    with pytest.raises(CommandError):
+        build_command(make(gateway_server="gw"), gateway_password="a,b")
     with pytest.raises(CommandError):
         build_command(make(gateway_server="a,p:secret"))
 
@@ -148,3 +172,8 @@ def test_values_stay_one_argument_each():
     args = build_command(Profile(name="x +admin", server="s", username="a /p:secret"))
     assert "/u:a /p:secret" in args and "/t:x +admin" in args
     assert "+admin" not in args
+
+
+def test_a_line_break_in_a_setting_is_refused():
+    with pytest.raises(CommandError, match="line break"):
+        build_command(Profile(name="a\nb", server="s"))

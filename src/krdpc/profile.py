@@ -62,6 +62,7 @@ class Profile:
     server: str = ""
     username: str = ""
     domain: str = ""
+    remember_password: bool = False
     resolution_mode: str = "dynamic"
     resolution_width: int = 1920
     resolution_height: int = 1080
@@ -80,6 +81,8 @@ class Profile:
     # Advanced
     security: str = "auto"
     ignore_certificate: bool = False
+    # SHA-256 of the one certificate the user accepted for this computer (64 hex digits).
+    trusted_certificate: str = ""
     gateway_server: str = ""
     gateway_username: str = ""
     gateway_domain: str = ""
@@ -154,6 +157,8 @@ def from_text(field: dataclasses.Field, raw: str | None):
         except ValueError:
             return default
     value = unescape(raw)
+    if field.name == "trusted_certificate":
+        return value if re.fullmatch(r"[0-9a-f]{64}", value) else default
     if field.name in CHOICES and value not in {key for key, _ in CHOICES[field.name]}:
         return default
     return value

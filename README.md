@@ -14,7 +14,7 @@ remote computers and opens each one with FreeRDP's `xfreerdp`. It is laid out
 and behaves like Remmina's main window, but it is built with Qt and follows your
 KDE theme.
 
-**Status:** in development. The list, the add/edit dialog and connecting work. Until the password box is built, `xfreerdp` asks for the password in the terminal you started krdpc from.
+**Status:** in development. The list, the add/edit dialog, connecting, the password box and the certificate dialog work.
 
 ## Why
 
@@ -34,7 +34,10 @@ type the address and options every time. krdpc adds that screen and nothing else
   the saved options, and dynamic resolution if you want it, so the desktop
   follows the window size.
 - Ask for the password when you connect, or remember it in KDE Wallet if you tick
-  the box. The password is never written into the profile file.
+  the box. The password is never written into the profile file or put on the
+  `xfreerdp` command line.
+- Ask before trusting a certificate `xfreerdp` cannot verify, and remember your
+  answer for that computer.
 - Keep each profile as a plain-text file in `~/.config/krdpc/`.
 - Show a plain error if `xfreerdp` is missing or exits with an error.
 
@@ -49,14 +52,15 @@ type the address and options every time. krdpc adds that screen and nothing else
 
 - Linux with KDE Plasma (Fedora 45 is the first target).
 - The `freerdp` package (provides `xfreerdp`).
-- Python 3 and PySide6 (Qt 6).
+- Python 3, PySide6 (Qt 6) and `keyring` (Fedora: `python3-pyside6`, `python3-keyring`).
+- KDE Wallet, if you want passwords remembered.
 
 ## Roadmap
 
 1. Repository setup: licence, changelog, issue templates, CI. (done)
 2. Profile list and tabbed edit dialog. (done)
 3. Connect: build the `xfreerdp` command from a profile and start it. (done)
-4. Password box and KDE Wallet.
+4. Password box and KDE Wallet. (done)
 5. Application menu entry (`.desktop` file).
 6. Preferences page in the main menu.
 7. Tests and install documentation.

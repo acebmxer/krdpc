@@ -13,9 +13,23 @@ rather than being backported.
 ## Threat model
 
 **What it holds.** Each saved computer's name, address, username and connection
-options, as plain-text files in `~/.config/krdpc/`. Passwords are never written
-to those files: krdpc asks for the password when you connect, or, if you tick
-the box, stores it in KDE Wallet.
+options, as plain-text files in `~/.config/krdpc/`, readable by you only. Passwords
+are never written to those files: krdpc asks for the password when you connect,
+or, if you tick the box, stores it in KDE Wallet (through the desktop's Secret
+Service, using the `keyring` library). The same goes for a gateway's password.
+A profile also keeps the SHA-256 fingerprint of a certificate you chose to trust
+for that computer.
+
+**How passwords are passed.** krdpc starts `xfreerdp /args-from:stdin` and writes
+the options, password included, to its standard input. The password is never in
+`xfreerdp`'s command line, where any program could read it, and never on disk.
+A password that contains a line break is refused, because that is how the options
+are separated.
+
+**Certificates.** `xfreerdp` is told to accept only the certificate whose
+fingerprint you trusted. Any other unverifiable certificate is shown to you
+first. If one differs from what you trusted before, krdpc says so. "Ignore
+certificate errors" switches all of this off for that computer.
 
 **What it runs.** krdpc starts `xfreerdp` as you, with the options of the
 profile you chose. Anyone who can edit your profile files can make krdpc run

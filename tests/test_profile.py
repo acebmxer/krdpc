@@ -26,6 +26,8 @@ def test_every_stored_field_roundtrips_with_changed_values():
             changed[field.name] = not field.default
         elif field.type is int:
             changed[field.name] = 7
+        elif field.name == "trusted_certificate":
+            changed[field.name] = "ab" * 32
         elif field.name in CHOICES:
             changed[field.name] = CHOICES[field.name][-1][0]
         else:
@@ -60,6 +62,12 @@ def test_bad_values_fall_back_to_defaults():
     assert profile.clipboard is defaults.clipboard
     assert profile.sound == defaults.sound
     assert profile.reconnect_attempts == 0
+
+
+def test_a_trusted_certificate_must_be_64_hex_digits():
+    assert from_mapping("a", {"trusted_certificate": "ab" * 32}).trusted_certificate == "ab" * 32
+    assert from_mapping("a", {"trusted_certificate": "xyz"}).trusted_certificate == ""
+    assert from_mapping("a", {"trusted_certificate": "AB" * 32}).trusted_certificate == ""
 
 
 def test_missing_values_use_defaults_and_unknown_keys_are_ignored():

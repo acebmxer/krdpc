@@ -12,6 +12,19 @@ one with FreeRDP's `xfreerdp`.
 
 ### Added
 
+- **Password box.** Connecting asks for the password in a box instead of the terminal, with an
+  eye at the right end of the field to show what you typed. Tick
+  **Remember in KDE Wallet** and krdpc keeps it in KDE Wallet and stops asking; a refused sign-in
+  makes it forget the saved password, and so does deleting the computer or unticking the option
+  in the edit dialog. If the computer uses a gateway, its password is asked for and remembered
+  too. The password is sent to `xfreerdp` through a pipe, so it is never on its command line or
+  in your profile file. A blank domain is sent as blank, so `xfreerdp` no longer stops to ask for
+  one.
+- **Certificate dialog.** When the remote computer's certificate cannot be verified (for example
+  a self-signed one), krdpc shows its subject, issuer, dates and SHA-256 fingerprint and asks
+  whether to trust it, instead of `xfreerdp` asking in the terminal. Trusting it saves the
+  fingerprint for that computer only; the Advanced tab shows it with a **Forget** button. If the
+  certificate later differs, krdpc warns that it has changed before asking again.
 - **Connect.** Double-click a computer, press Enter, or right-click it and choose Connect. krdpc
   starts `xfreerdp` with that computer's saved options and updates its "Last used" time. If
   `xfreerdp` is missing, the options cannot be turned into a command, or the connection fails,
@@ -21,8 +34,6 @@ one with FreeRDP's `xfreerdp`.
   so does opening a second connection to a computer that is already open. Problems are shown one
   at a time, with `xfreerdp`'s log under **Show Details**, and a status-bar message confirms
   that a connection started. Ctrl+C in the terminal ends the connections and quits.
-  Until the password box arrives, `xfreerdp` asks for the password in the terminal krdpc was
-  started from.
 - **The list of computers.** The main window shows saved computers in a sortable table
   (Name, Group, Labels, Server, Plugin, Last used) with a search row, a toolbar and a "Total N
   items." footer, laid out like Remmina's main window and built with Qt so it follows your KDE

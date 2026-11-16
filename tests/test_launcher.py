@@ -18,14 +18,16 @@ def wait_for(condition, seconds=10):
 
 def fake_xfreerdp(tmp_path, body="exit 0"):
     script = tmp_path / "fake-xfreerdp"
-    script.write_text(f'#!/bin/sh\necho "$@" > "{tmp_path}/args"\n{body}\n')
+    script.write_text(
+        f'#!/bin/sh\necho "$@" > "{tmp_path}/args"\ncat > "{tmp_path}/stdin"\n{body}\n'
+    )
     script.chmod(0o755)
     return str(script)
 
 
 @pytest.fixture
 def events():
-    return {"started": [], "ended": [], "failed": []}
+    return {"started": [], "ended": [], "failed": [], "certificates": [], "rejected": []}
 
 
 def make_launcher(store, find, events):
@@ -33,6 +35,8 @@ def make_launcher(store, find, events):
     launcher.started.connect(events["started"].append)
     launcher.ended.connect(events["ended"].append)
     launcher.failed.connect(lambda pid, msg: events["failed"].append((pid, msg)))
+    launcher.certificate_untrusted.connect(lambda pid, info: events["certificates"].append(info))
+    launcher.login_rejected.connect(events["rejected"].append)
     return launcher
 
 
@@ -53,9 +57,65 @@ def test_successful_connection(qapp, store, tmp_path, events):
     launcher.connect_to(profile)
     wait_for(lambda: events["ended"])
     assert events["started"] == [profile.id] and events["failed"] == []
-    assert "/v:10.0.0.5" in (tmp_path / "args").read_text()
+    assert "/args-from:stdin" in (tmp_path / "args").read_text()
+    assert "/v:10.0.0.5" in (tmp_path / "stdin").read_text()
     assert store.get(profile.id).last_used != ""
     assert launcher.active_count() == 0
+
+
+def test_the_password_goes_through_the_pipe_and_not_the_arguments(qapp, store, tmp_path, events):
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path), events)
+    profile = saved(store, username="nick", gateway_server="gw")
+    launcher.connect_to(profile, "s3cret", "gwpass")
+    wait_for(lambda: events["ended"])
+    piped = (tmp_path / "stdin").read_text().splitlines()
+    assert "/p:s3cret" in piped
+    assert "/gateway:g:gw,p:gwpass" in piped
+    assert "/u:nick" in piped
+    argv = (tmp_path / "args").read_text()
+    assert "s3cret" not in argv and "gwpass" not in argv
+    assert argv.split() == ["/args-from:stdin"]
+
+
+def test_a_password_with_a_line_break_never_starts_anything(qapp, store, tmp_path, events):
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path), events)
+    launcher.connect_to(saved(store), "a\nb")
+    assert "line break" in events["failed"][0][1]
+    assert not (tmp_path / "args").exists()
+
+
+CERTIFICATE_OUTPUT = """echo 'Certificate details for 192.0.2.10:3389 (RDP-Server):'
+echo '        Subject:     C = XX, O = Example'
+echo '        Issuer:      C = XX, O = Example'
+echo '        Valid from:  Jul 27 21:49:36 2026 GMT'
+echo '        Valid to:    Jul 28 21:49:36 2026 GMT'
+echo '        Thumbprint:  ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89'
+exit 143"""
+
+
+def test_an_untrusted_certificate_is_reported_instead_of_a_failure(qapp, store, tmp_path, events):
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, CERTIFICATE_OUTPUT), events)
+    profile = saved(store)
+    launcher.connect_to(profile)
+    wait_for(lambda: events["certificates"])
+    assert events["certificates"][0].thumbprint == "abcdef0123456789" * 4
+    assert events["failed"] == []
+
+
+def test_a_refused_sign_in_is_reported(qapp, store, tmp_path, events):
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, "exit 134"), events)
+    profile = saved(store)
+    launcher.connect_to(profile, "wrong")
+    wait_for(lambda: events["failed"])
+    assert events["rejected"] == [profile.id]
+    assert "Sign-in failed" in events["failed"][0][1]
+
+
+def test_other_failures_are_not_sign_in_refusals(qapp, store, tmp_path, events):
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, "exit 131"), events)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["failed"])
+    assert events["rejected"] == []
 
 
 def test_normal_exit_codes_do_not_complain(qapp, store, tmp_path, events):

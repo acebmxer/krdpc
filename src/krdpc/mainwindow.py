@@ -1,5 +1,6 @@
 """The main window: a searchable, sortable list of saved computers."""
 
+import dataclasses
 from collections import deque
 from contextlib import contextmanager
 
@@ -23,9 +24,12 @@ from PySide6.QtWidgets import (
 )
 
 from krdpc import __version__
+from krdpc.certificate import CertificateInfo, format_thumbprint
 from krdpc.editdialog import EditDialog
 from krdpc.icons import symbolic_icon
 from krdpc.launcher import Launcher
+from krdpc.passworddialog import PasswordDialog
+from krdpc.passwords import PasswordStore, PasswordStoreError, gateway_key, password_key
 from krdpc.profile import PROTOCOL, Profile
 from krdpc.store import ProfileStore
 
@@ -84,12 +88,18 @@ class MainWindow(QMainWindow):
         store: ProfileStore,
         parent: QWidget | None = None,
         launcher: Launcher | None = None,
+        passwords: PasswordStore | None = None,
     ) -> None:
         super().__init__(parent)
         self._store = store
+        self._passwords = passwords or PasswordStore()
+        # What each computer was last connected with, to try again after a certificate is trusted.
+        self._retry: dict[str, tuple[str, str]] = {}
         self._launcher = launcher or Launcher(store, parent=self)
         self._launcher.started.connect(self._connection_started)
         self._launcher.failed.connect(self._show_failure)
+        self._launcher.certificate_untrusted.connect(self._ask_about_certificate)
+        self._launcher.login_rejected.connect(self._forget_passwords)
         self._failures: deque[tuple[str, str]] = deque()
         self._failure_box: QMessageBox | None = None
         self._failure_shown: tuple[str, str] | None = None
@@ -316,7 +326,56 @@ class MainWindow(QMainWindow):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
-        self._launcher.connect_to(profile)
+        credentials = self._credentials(profile)
+        if credentials is None:
+            return
+        self._retry[profile.id] = credentials
+        self._launcher.connect_to(profile, *credentials)
+
+    def _credentials(self, profile: Profile) -> tuple[str, str] | None:
+        """The password and gateway password: remembered ones, or ask. None if cancelled."""
+        if profile.remember_password:
+            try:
+                password = self._passwords.get(password_key(profile.id))
+                gateway = (
+                    self._passwords.get(gateway_key(profile.id)) if profile.gateway_server else ""
+                )
+            except PasswordStoreError as error:
+                self.statusBar().showMessage(str(error), 10000)
+                password = gateway = None
+            if password is not None and gateway is not None:
+                return password, gateway
+        dialog = PasswordDialog(profile, self)
+        if dialog.exec() != PasswordDialog.DialogCode.Accepted:
+            return None
+        self._remember(profile, dialog.remember(), dialog.password(), dialog.gateway_password())
+        return dialog.password(), dialog.gateway_password()
+
+    def _remember(self, profile: Profile, remember: bool, password: str, gateway: str) -> None:
+        """Keep or drop the password in the wallet to match the tick in the dialog."""
+        try:
+            if remember:
+                self._passwords.set(password_key(profile.id), password)
+                if profile.gateway_server:
+                    self._passwords.set(gateway_key(profile.id), gateway)
+            else:
+                self._forget_in_wallet(profile.id)
+        except PasswordStoreError as error:
+            QMessageBox.warning(self, "KDE Wallet", str(error))
+            remember = False
+        if remember != profile.remember_password:
+            self._store.save(dataclasses.replace(profile, remember_password=remember))
+
+    def _forget_in_wallet(self, profile_id: str) -> None:
+        self._passwords.delete(password_key(profile_id))
+        self._passwords.delete(gateway_key(profile_id))
+
+    def _forget_passwords(self, profile_id: str) -> None:
+        """The sign-in was refused: stop using a remembered password that may be out of date."""
+        try:
+            self._forget_in_wallet(profile_id)
+        except PasswordStoreError as error:
+            self.statusBar().showMessage(str(error), 10000)
 
     def _connection_started(self, profile_id: str) -> None:
         self.reload()
@@ -324,11 +383,45 @@ class MainWindow(QMainWindow):
             name = self._store.get(profile_id).name
         except (KeyError, ValueError):
             return
-        self.statusBar().showMessage(
-            f"Started {name}. If xfreerdp asks for a password, type it in the terminal "
-            "krdpc was started from.",
-            15000,
+        self.statusBar().showMessage(f"Started {name}.", 8000)
+
+    def _ask_about_certificate(self, profile_id: str, info: CertificateInfo) -> None:
+        """The remote computer's certificate is not one xfreerdp can verify: ask, then retry."""
+        try:
+            profile = self._store.get(profile_id)
+        except (KeyError, ValueError):
+            return
+        if not self._trust_certificate(profile, info):
+            return
+        trusted = dataclasses.replace(profile, trusted_certificate=info.thumbprint)
+        self._store.save(trusted)
+        self.reload()
+        credentials = self._retry.get(profile_id)
+        if credentials is not None:
+            self._launcher.connect_to(trusted, *credentials)
+
+    def _trust_certificate(self, profile: Profile, info: CertificateInfo) -> bool:
+        """Show the certificate and ask whether to trust it."""
+        different = bool(profile.trusted_certificate) or info.changed
+        text = f"{profile.name} presented a certificate that cannot be verified."
+        if different:
+            text = (
+                f"WARNING: the certificate {profile.name} presented is different from the one "
+                "seen before. Someone could be intercepting the connection, or the computer "
+                "may just have a new certificate."
+            )
+        box = QMessageBox(QMessageBox.Icon.Warning, "Untrusted certificate", text, parent=self)
+        box.setInformativeText(
+            f"Subject: {info.subject}\nIssuer: {info.issuer}\n"
+            f"Valid: {info.valid_from} to {info.valid_to}\n"
+            f"SHA-256: {format_thumbprint(info.thumbprint)}\n\n"
+            "Trust it only if you expect this certificate. krdpc remembers it for this computer."
         )
+        trust = box.addButton("Trust and connect", QMessageBox.ButtonRole.AcceptRole)
+        cancel = box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(cancel)
+        box.exec()
+        return box.clickedButton() is trust
 
     def _show_failure(self, profile_id: str, message: str) -> None:
         """Queue a problem; they are shown one at a time and the same one only once."""
@@ -401,6 +494,8 @@ class MainWindow(QMainWindow):
         dialog = EditDialog(profile, self)
         if dialog.exec() == EditDialog.DialogCode.Accepted:
             saved = self._store.save(dialog.profile())
+            if profile.remember_password and not saved.remember_password:
+                self._forget_passwords(saved.id)
             self.reload()
             self.select_id(saved.id)
 
@@ -423,6 +518,7 @@ class MainWindow(QMainWindow):
         )
         if answer == QMessageBox.StandardButton.Yes:
             self._store.delete(profile_id)
+            self._forget_passwords(profile_id)
             self.reload()
 
     def _about(self) -> None:

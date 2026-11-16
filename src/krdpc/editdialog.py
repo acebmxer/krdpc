@@ -68,6 +68,12 @@ class EditDialog(QDialog):
         self._add(form, "Server", "server", QLineEdit(placeholderText="Address or name"))
         self._add(form, "Username", "username", QLineEdit())
         self._add(form, "Domain", "domain", QLineEdit())
+        self._add(
+            form,
+            "Password",
+            "remember_password",
+            QCheckBox("Remember it in KDE Wallet (asked for when you connect)"),
+        )
 
         mode = _combo("resolution_mode")
         mode.currentIndexChanged.connect(self._fixed_size_changed)
@@ -106,6 +112,16 @@ class EditDialog(QDialog):
         form, tab = _form()
         self._add(form, "Security", "security", _combo("security"))
         self._add(form, "", "ignore_certificate", QCheckBox("Ignore certificate errors"))
+        trusted = QLineEdit()
+        trusted.setReadOnly(True)
+        trusted.setPlaceholderText("None: asked the first time")
+        forget = QPushButton("Forget")
+        forget.clicked.connect(trusted.clear)
+        trusted_row = QHBoxLayout()
+        trusted_row.addWidget(trusted, 1)
+        trusted_row.addWidget(forget)
+        self._widgets["trusted_certificate"] = trusted
+        form.addRow("Trusted certificate", trusted_row)
         self._add(form, "Gateway server", "gateway_server", QLineEdit())
         self._add(form, "Gateway username", "gateway_username", QLineEdit())
         self._add(form, "Gateway domain", "gateway_domain", QLineEdit())

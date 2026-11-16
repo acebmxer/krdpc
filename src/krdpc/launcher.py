@@ -7,6 +7,7 @@ from collections.abc import Callable
 
 from PySide6.QtCore import QObject, QProcess, Signal
 
+from krdpc.certificate import parse_certificate
 from krdpc.command import CommandError, build_command
 from krdpc.profile import Profile
 from krdpc.store import ProfileStore
@@ -46,8 +47,12 @@ _EXIT_MESSAGES = {
     161: "The remote computer requires NLA. Set Security to NLA on the Advanced tab.",
 }
 
+# Exit codes for a refused sign-in: a remembered password that gets one is forgotten.
+LOGIN_REFUSED_CODES = frozenset({132, 134, 154, 155})
+
 _MISSING = "xfreerdp was not found. Install the freerdp package, then try again."
 _TAIL_LINES = 12
+_OUTPUT_LIMIT = 200_000  # characters of xfreerdp output kept, to find the certificate in
 
 
 def explain_exit(code: int) -> str:
@@ -69,6 +74,7 @@ class _Run:
         self.process = process
         self.tail: deque[str] = deque(maxlen=_TAIL_LINES)
         self.partial = ""
+        self.text = ""
 
 
 class Launcher(QObject):
@@ -82,6 +88,8 @@ class Launcher(QObject):
     started = Signal(str)
     ended = Signal(str)
     failed = Signal(str, str)  # profile id, what went wrong
+    certificate_untrusted = Signal(str, object)  # profile id, CertificateInfo
+    login_rejected = Signal(str)  # profile id: the remote computer refused the sign-in
 
     def __init__(
         self,
@@ -109,13 +117,14 @@ class Launcher(QObject):
             run.process.terminate()
             run.process.waitForFinished(2000)
 
-    def connect_to(self, profile: Profile) -> None:
+    def connect_to(self, profile: Profile, password: str = "", gateway_password: str = "") -> None:
+        """Start a connection. The passwords go to xfreerdp through a pipe, never its arguments."""
         executable = self._find("xfreerdp")
         if executable is None:
             self.failed.emit(profile.id, _MISSING)
             return
         try:
-            command = build_command(profile, executable)
+            command = build_command(profile, executable, password, gateway_password or None)
         except CommandError as error:
             self.failed.emit(profile.id, str(error))
             return
@@ -147,17 +156,17 @@ class Launcher(QObject):
 
     def _start(self, profile: Profile, command: list[str]) -> None:
         process = QProcess(self)
-        # Keep the terminal krdpc was started from usable for xfreerdp's own prompts
-        # (the password is asked there until krdpc has a password box).
         process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-        process.setInputChannelMode(QProcess.InputChannelMode.ForwardedInputChannel)
         run = _Run(profile, process)
         process.readyRead.connect(lambda: self._read(run))
         process.finished.connect(lambda code, status: self._finished(run, code, status))
         process.errorOccurred.connect(lambda error: self._error(run, error))
         self._runs.append(run)
-        process.start(command[0], command[1:])
+        # The arguments, password included, are read from the pipe: one per line.
+        process.start(command[0], ["/args-from:stdin"])
         if process.waitForStarted(5000):
+            process.write(("\n".join(command[1:]) + "\n").encode())
+            process.closeWriteChannel()
             try:
                 self._store.touch_last_used(profile.id)
             except (KeyError, OSError, ValueError):
@@ -168,6 +177,7 @@ class Launcher(QObject):
         text = bytes(run.process.readAll()).decode(errors="replace")
         sys.stdout.write(text)
         sys.stdout.flush()
+        run.text = (run.text + text)[-_OUTPUT_LIMIT:]
         *lines, run.partial = (run.partial + text).split("\n")
         run.tail.extend(line for line in lines if line.strip())
 
@@ -195,5 +205,11 @@ class Launcher(QObject):
             return
         else:
             problem = explain_exit(code)
+        certificate = parse_certificate(run.text)
+        if certificate is not None:
+            self.certificate_untrusted.emit(profile.id, certificate)
+            return
+        if code in LOGIN_REFUSED_CODES:
+            self.login_rejected.emit(profile.id)
         details = "\n".join(run.tail)
         self.failed.emit(profile.id, f"{problem}\n\n{details}" if details else problem)

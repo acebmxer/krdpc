@@ -1,9 +1,14 @@
+import dataclasses
+
 import pytest
 from PySide6.QtWidgets import QMessageBox
 
+from krdpc.certificate import CertificateInfo
 from krdpc.editdialog import EditDialog
 from krdpc.launcher import Launcher
 from krdpc.mainwindow import MainWindow
+from krdpc.passworddialog import PasswordDialog
+from krdpc.passwords import PasswordStore, password_key
 from krdpc.profile import Profile
 
 
@@ -11,12 +16,37 @@ def computer(name, server="10.0.0.5", **kwargs):
     return Profile(name=name, server=server, **kwargs)
 
 
+class Asked:
+    """Stands in for the password dialog: records that it was shown and answers."""
+
+    def __init__(self, monkeypatch, password="pw", remember=False, accept=True):
+        self.shown = 0
+        self._answer = (password, remember, accept)
+        monkeypatch.setattr(PasswordDialog, "exec", lambda dialog: self._exec())
+        monkeypatch.setattr(PasswordDialog, "password", lambda dialog: self._answer[0])
+        monkeypatch.setattr(PasswordDialog, "remember", lambda dialog: self._answer[1])
+
+    def _exec(self):
+        self.shown += 1
+        accepted = PasswordDialog.DialogCode.Accepted
+        return accepted if self._answer[2] else PasswordDialog.DialogCode.Rejected
+
+
 @pytest.fixture
-def window(qapp, store):
+def asked(monkeypatch):
+    return Asked(monkeypatch)
+
+
+@pytest.fixture
+def window(qapp, store, asked):
     store.save(computer("Seedbox", "10.0.0.6", group="Home", labels="media"))
     store.save(computer("dev fedora", "10.0.0.5", last_used="2026-11-15T19:37:03"))
     store.save(computer("WorkPC", "10.1.0.11"))
-    win = MainWindow(store, launcher=Launcher(store, find_executable=lambda _name: None))
+    win = MainWindow(
+        store,
+        launcher=Launcher(store, find_executable=lambda _name: None),
+        passwords=PasswordStore(),
+    )
     win.show()
     return win
 
@@ -179,17 +209,17 @@ def test_dialog_refuses_to_save_without_name_or_server(qapp, monkeypatch):
 
 def test_connect_action_hands_the_profile_to_the_launcher(window, monkeypatch):
     seen = []
-    monkeypatch.setattr(window._launcher, "connect_to", seen.append)
+    monkeypatch.setattr(window._launcher, "connect_to", lambda *args: seen.append(args))
     select(window, "WorkPC")
     window.connect_action.trigger()
-    assert [p.name for p in seen] == ["WorkPC"]
+    assert [(args[0].name, args[1:]) for args in seen] == [("WorkPC", ("pw", ""))]
 
 
 def test_double_click_connects_too(window, monkeypatch):
     seen = []
-    monkeypatch.setattr(window._launcher, "connect_to", seen.append)
+    monkeypatch.setattr(window._launcher, "connect_to", lambda *args: seen.append(args))
     window._view.activated.emit(window._proxy.index(1, 0))
-    assert [p.name for p in seen] == ["Seedbox"]
+    assert [args[0].name for args in seen] == ["Seedbox"]
 
 
 def test_a_failed_connection_is_shown_with_the_computer_name(window):
@@ -218,7 +248,7 @@ def test_failures_are_shown_one_at_a_time_and_never_twice(window):
 
 def test_asks_before_a_second_connection_to_the_same_computer(window, monkeypatch):
     seen = []
-    monkeypatch.setattr(window._launcher, "connect_to", seen.append)
+    monkeypatch.setattr(window._launcher, "connect_to", lambda *args: seen.append(args))
     monkeypatch.setattr(window._launcher, "active_count_for", lambda _id: 1)
     answer = {"value": QMessageBox.StandardButton.Cancel}
     monkeypatch.setattr(QMessageBox, "question", lambda *a: answer["value"])
@@ -253,3 +283,109 @@ def test_closing_with_open_connections_asks(window, monkeypatch):
     monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.StandardButton.Close)
     assert window.close()
     assert stopped == [True]
+
+
+def profile_named(window, name):
+    return next(p for p in window._store.list() if p.name == name)
+
+
+def test_cancelling_the_password_box_does_not_connect(window, monkeypatch):
+    Asked(monkeypatch, accept=False)
+    seen = []
+    monkeypatch.setattr(window._launcher, "connect_to", lambda *args: seen.append(args))
+    select(window, "WorkPC")
+    window.connect_action.trigger()
+    assert seen == []
+
+
+def test_remembering_saves_to_the_wallet_and_stops_asking(window, monkeypatch, wallet):
+    asked = Asked(monkeypatch, password="s3cret", remember=True)
+    seen = []
+    monkeypatch.setattr(window._launcher, "connect_to", lambda *args: seen.append(args))
+    select(window, "WorkPC")
+    window.connect_action.trigger()
+    work = profile_named(window, "WorkPC")
+    assert work.remember_password is True
+    assert wallet.items[("krdpc", password_key(work.id))] == "s3cret"
+    assert "s3cret" not in (window._store.directory / f"{work.id}.ini").read_text()
+    window.connect_action.trigger()  # second time: from the wallet
+    assert asked.shown == 1
+    assert seen[1][1:] == ("s3cret", "")
+
+
+def test_not_remembering_forgets_an_earlier_password(window, monkeypatch, wallet):
+    Asked(monkeypatch, password="one", remember=True)
+    monkeypatch.setattr(window._launcher, "connect_to", lambda *args: None)
+    select(window, "WorkPC")
+    window.connect_action.trigger()
+    work = profile_named(window, "WorkPC")
+    # The saved password is not used while the tick is gone; asking again unticked removes it.
+    window._store.save(dataclasses.replace(work, remember_password=False))
+    Asked(monkeypatch, password="two", remember=False)
+    window.connect_action.trigger()
+    assert ("krdpc", password_key(work.id)) not in wallet.items
+
+
+def test_a_refused_sign_in_forgets_the_remembered_password(window, monkeypatch, wallet):
+    Asked(monkeypatch, password="old", remember=True)
+    monkeypatch.setattr(window._launcher, "connect_to", lambda *args: None)
+    select(window, "WorkPC")
+    window.connect_action.trigger()
+    work = profile_named(window, "WorkPC")
+    window._launcher.login_rejected.emit(work.id)
+    assert ("krdpc", password_key(work.id)) not in wallet.items
+
+
+def test_deleting_a_computer_removes_its_password(window, monkeypatch, wallet):
+    Asked(monkeypatch, password="x", remember=True)
+    monkeypatch.setattr(window._launcher, "connect_to", lambda *args: None)
+    select(window, "WorkPC")
+    window.connect_action.trigger()
+    work = profile_named(window, "WorkPC")
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.StandardButton.Yes)
+    select(window, "WorkPC")
+    window.delete_action.trigger()
+    assert ("krdpc", password_key(work.id)) not in wallet.items
+
+
+def certificate(thumbprint="ab" * 32, changed=False):
+    return CertificateInfo("", "C = XX", "C = XX", "Jul 1", "Jul 2", thumbprint, changed)
+
+
+def test_trusting_a_certificate_saves_it_and_tries_again(window, monkeypatch):
+    seen = []
+    monkeypatch.setattr(window._launcher, "connect_to", lambda *args: seen.append(args))
+    select(window, "WorkPC")
+    window.connect_action.trigger()
+    work = profile_named(window, "WorkPC")
+    monkeypatch.setattr(window, "_trust_certificate", lambda profile, info: True)
+    window._launcher.certificate_untrusted.emit(work.id, certificate())
+    assert profile_named(window, "WorkPC").trusted_certificate == "ab" * 32
+    assert len(seen) == 2
+    assert seen[1][0].trusted_certificate == "ab" * 32
+    assert seen[1][1:] == ("pw", "")
+
+
+def test_declining_a_certificate_changes_nothing(window, monkeypatch):
+    seen = []
+    monkeypatch.setattr(window._launcher, "connect_to", lambda *args: seen.append(args))
+    select(window, "WorkPC")
+    window.connect_action.trigger()
+    work = profile_named(window, "WorkPC")
+    monkeypatch.setattr(window, "_trust_certificate", lambda profile, info: False)
+    window._launcher.certificate_untrusted.emit(work.id, certificate())
+    assert profile_named(window, "WorkPC").trusted_certificate == ""
+    assert len(seen) == 1
+
+
+def test_the_eye_shows_and_hides_what_was_typed(qapp):
+    from PySide6.QtWidgets import QLineEdit
+
+    dialog = PasswordDialog(computer("A", gateway_server="gw"))
+    for field in (dialog._password, dialog._gateway):
+        assert field.echoMode() == QLineEdit.EchoMode.Password
+        eye = field.actions()[0]
+        eye.setChecked(True)
+        assert field.echoMode() == QLineEdit.EchoMode.Normal
+        eye.setChecked(False)
+        assert field.echoMode() == QLineEdit.EchoMode.Password

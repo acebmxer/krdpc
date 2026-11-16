@@ -43,10 +43,11 @@ def test_file_is_private_and_leaves_no_temp_files(store):
     assert [p.name for p in store.directory.iterdir()] == ["dev-fedora.ini"]
 
 
-def test_password_fields_are_never_written(store):
-    store.save(make())
-    text = (store.directory / "dev-fedora.ini").read_text()
-    assert "password" not in text.lower()
+def test_no_password_is_ever_written(store):
+    store.save(make(remember_password=True))
+    lines = (store.directory / "dev-fedora.ini").read_text().lower().splitlines()
+    # Only the yes/no tick is stored; the password itself lives in the wallet.
+    assert [line for line in lines if "password" in line] == ["remember_password = true"]
 
 
 def test_delete(store):

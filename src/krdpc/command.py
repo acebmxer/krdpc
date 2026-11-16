@@ -25,16 +25,31 @@ _SOUND = {
 }
 
 
-def build_command(profile: Profile, executable: str = "xfreerdp") -> list[str]:
-    """The argument list that starts `profile`. No password is ever included."""
+def build_command(
+    profile: Profile,
+    executable: str = "xfreerdp",
+    password: str | None = None,
+    gateway_password: str | None = None,
+) -> list[str]:
+    """The arguments that start `profile`, the executable first.
+
+    A password is included only when one is given, and the caller must then hand
+    the arguments to xfreerdp through a pipe (`/args-from:stdin`), never on its
+    command line, where any program could read them.
+    """
     if not profile.server.strip():
         raise CommandError("This computer has no server address.")
+    for secret in (password, gateway_password):
+        if secret and ("\n" in secret or "\r" in secret):
+            raise CommandError("A password cannot contain a line break.")
 
     args = [executable, f"/v:{profile.server.strip()}", f"/t:{profile.name}"]
     if profile.username:
         args.append(f"/u:{profile.username}")
-    if profile.domain:
-        args.append(f"/d:{profile.domain}")
+    # Always sent, even empty: without a domain xfreerdp stops to ask for one.
+    args.append(f"/d:{profile.domain}")
+    if password is not None:
+        args.append(f"/p:{password}")
 
     if profile.fullscreen:
         args.append("/f")
@@ -65,8 +80,10 @@ def build_command(profile: Profile, executable: str = "xfreerdp") -> list[str]:
         args.append(f"/sec:{profile.security}")
     if profile.ignore_certificate:
         args.append("/cert:ignore")
+    elif profile.trusted_certificate:
+        args.append(f"/cert:fingerprint:sha256:{profile.trusted_certificate}")
     if profile.gateway_server:
-        args.append(_gateway_argument(profile))
+        args.append(_gateway_argument(profile, gateway_password))
     if profile.network != "auto":
         args.append(f"/network:{profile.network}")
     if profile.reconnect_attempts:
@@ -87,6 +104,8 @@ def build_command(profile: Profile, executable: str = "xfreerdp") -> list[str]:
             args += shlex.split(profile.extra_arguments)
         except ValueError as error:
             raise CommandError(f"The extra arguments are not valid: {error}.") from None
+    if any(("\n" in arg or "\r" in arg) for arg in args):
+        raise CommandError("A setting contains a line break, which xfreerdp cannot take.")
     return args
 
 
@@ -96,10 +115,12 @@ def _drive_argument(path: str) -> str:
     return f"/drive:{name},{path}"
 
 
-def _gateway_argument(profile: Profile) -> str:
+def _gateway_argument(profile: Profile, gateway_password: str | None) -> str:
     parts = [("g", profile.gateway_server), ("u", profile.gateway_username)]
     parts.append(("d", profile.gateway_domain))
+    if gateway_password:
+        parts.append(("p", gateway_password))
     for _, value in parts:
         if "," in value:
-            raise CommandError("The gateway settings cannot contain commas.")
+            raise CommandError("The gateway settings and password cannot contain commas.")
     return "/gateway:" + ",".join(f"{key}:{value}" for key, value in parts if value)
