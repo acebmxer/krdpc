@@ -49,7 +49,8 @@ hand.
 The version is kept in one place, `src/krdpc/__init__.py`; `scripts/package_version.sh`
 prints it and every package recipe takes it from there.
 
-- **Beta.** On GitHub: Actions, **Release**, **Run workflow**, branch `dev`. It
+- **Beta.** (The workflow file must already be on `main`: GitHub only shows **Run
+  workflow** for files on the default branch.) On GitHub: Actions, **Release**, **Run workflow**, branch `dev`. It
   builds the `.rpm`, `.deb` and Arch package, installs each in a clean Fedora,
   Debian, Ubuntu and Arch container and checks krdpc starts, then publishes a
   pre-release `v<version>-beta.<n>` (n counts up) with the files and the changelog's

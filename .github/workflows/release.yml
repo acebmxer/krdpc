@@ -9,6 +9,9 @@ run-name: ${{ inputs.description || github.event.head_commit.message || 'Release
 # main -> DRAFT stable release, tag v<version>. Starts when the version in
 #         src/krdpc/__init__.py changes on main, or by hand. Publishing the draft
 #         creates the tag, so the files are already there when it goes public.
+#
+# GitHub only offers "Run workflow" for a workflow file that is on the default branch
+# (main), so this file has to reach main before the first beta can be started.
 # dev  -> only by hand (Actions -> Release -> Run workflow, branch dev). A beta
 #         pre-release, tag v<version>-beta.<n>, n counting up per version, published
 #         at once with the files attached. Pre-releases are never "latest".
@@ -46,8 +49,13 @@ jobs:
           changed=true
           if [[ "$GITHUB_EVENT_NAME" == "push" && -n "$BEFORE" && ! "$BEFORE" =~ ^0+$ ]]; then
             git fetch --no-tags --depth=1 origin "$BEFORE"
-            before=$(git show "$BEFORE:src/krdpc/__init__.py" | sed -n 's/^__version__ = "\(.*\)"$/\1/p')
-            if [[ "$before" == "$now" ]]; then
+            before=$(git show "$BEFORE:src/krdpc/__init__.py" 2>/dev/null | sed -n 's/^__version__ = "\(.*\)"$/\1/p' || true)
+            if [[ -z "$before" ]]; then
+              # The first merge into main: there is no earlier version to compare with.
+              # Not releasing; start the release by hand (Actions -> Release -> Run workflow).
+              echo "No earlier version on main. Not releasing; run the workflow by hand."
+              changed=false
+            elif [[ "$before" == "$now" ]]; then
               echo "Version is still $now; __init__.py changed for another reason. Not releasing."
               changed=false
             fi
