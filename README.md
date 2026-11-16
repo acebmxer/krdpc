@@ -40,9 +40,10 @@ type the address and options every time. krdpc adds that screen and nothing else
 - Ask before trusting a certificate `xfreerdp` cannot verify, and remember your
   answer for that computer.
 - Keep each profile as a plain-text file in `~/.config/krdpc/`.
-- Set a few preferences: icon size, whether to confirm deleting, remembering the
-  window layout, where `xfreerdp` is, a system tray icon (with closing to the tray
-  and starting hidden), and starting at login.
+- Set a few preferences: colours (follow the desktop, light or dark), icon size,
+  whether to confirm deleting, remembering the window layout, where `xfreerdp` is,
+  a system tray icon (with closing to the tray and starting hidden), and starting
+  at login.
 - Show a plain error if `xfreerdp` is missing or exits with an error.
 
 ## What it does not do
@@ -128,7 +129,9 @@ passwords stay in KDE Wallet under the name `krdpc`; remove them there.
   krdpc says so in the status bar and asks instead. A refused sign-in also makes
   krdpc forget the saved password.
 - **The window looks plain, not like Plasma.** The PySide6 from PyPI was
-  installed. Remove it and use the Fedora package.
+  installed. Remove it and use the Fedora package. Without a KDE desktop (for
+  example Fedora under WSL) Qt has no theme to follow: choose **Light** or
+  **Dark** under **Colours** in Preferences.
 - **Closing the window does not end krdpc.** With "closing keeps krdpc in the tray"
   on, the window is only hidden. Choose Quit in the tray menu, or in the main
   menu, to end it.

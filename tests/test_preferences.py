@@ -46,6 +46,17 @@ def test_tray_only_options_are_dropped_without_the_tray(prefs):
     assert Preferences(show_tray=True, close_to_tray=True).normalised().close_to_tray is True
 
 
+def test_theme_roundtrip(prefs):
+    for name in ("light", "dark", "system"):
+        prefs.save(Preferences(theme=name))
+        assert prefs.load().theme == name
+
+
+def test_a_bad_theme_falls_back_to_follow_system(prefs, tmp_path):
+    (tmp_path / "krdpc.conf").write_text("[General]\ntheme=purple\n")
+    assert prefs.load().theme == "system"
+
+
 def test_a_bad_icon_size_falls_back_to_the_default(prefs, tmp_path):
     (tmp_path / "krdpc.conf").write_text("[General]\nicon_size=huge\nconfirm_delete=maybe\n")
     loaded = prefs.load()
@@ -86,6 +97,16 @@ def test_dialog_returns_what_was_chosen(qapp):
     assert (chosen.icon_size, chosen.confirm_delete) == ("small", False)
     assert chosen.xfreerdp_path == "/usr/bin/xfreerdp"
     assert chosen.remember_window is True
+    assert chosen.theme == "system"
+
+
+def test_dialog_offers_the_three_themes(qapp):
+    dialog = PreferencesDialog(Preferences(theme="dark"))
+    labels = [dialog._theme.itemText(i) for i in range(dialog._theme.count())]
+    assert labels == ["Follow system", "Light", "Dark"]
+    assert dialog._theme.currentData() == "dark"
+    dialog._theme.setCurrentIndex(dialog._theme.findData("light"))
+    assert dialog.preferences().theme == "light"
 
 
 def test_dialog_refuses_a_location_that_is_not_a_program(qapp, monkeypatch):
@@ -118,6 +139,20 @@ def test_the_icon_size_follows_the_preference(window):
     win._preferences.icon_size = "large"
     win._apply_preferences()
     assert win._view.iconSize().width() == 32
+
+
+def test_the_chosen_theme_is_applied(window, qapp):
+    from PySide6.QtGui import QPalette
+
+    win = window()
+    try:
+        win._preferences.theme = "dark"
+        win._apply_preferences()
+        assert qapp.palette().color(QPalette.ColorRole.Window).name() == "#202326"
+    finally:
+        win._preferences.theme = "system"
+        win._apply_preferences()
+    assert qapp.palette().resolveMask() == 0
 
 
 def test_the_menu_opens_preferences_and_applies_them(window, monkeypatch):

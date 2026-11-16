@@ -18,8 +18,9 @@ one with FreeRDP's `xfreerdp`.
   Ubuntu name it. The README says how to install them.
 - **Documentation.** The README now covers installing, updating and removing krdpc, using it,
   what to do when something goes wrong, and what is not built.
-- **Preferences.** **Preferences…** in the main menu (Ctrl+,) sets the size of the icons in the
-  list (small, medium or large), whether deleting a computer asks first, whether krdpc remembers
+- **Preferences.** **Preferences…** in the main menu (Ctrl+,) sets krdpc's colours (follow the
+  desktop's theme, light or dark, for desktops with no theme for Qt to follow, such as Fedora
+  under WSL; #5), the size of the icons in the list (small, medium or large), whether deleting a computer asks first, whether krdpc remembers
   its window size and column layout between runs, and which `xfreerdp` to use instead of the
   first one found on your PATH. They are kept in `~/.config/krdpc/krdpc.conf`.
 - **System tray.** Preferences can show a krdpc icon in the system tray: click it to show or hide

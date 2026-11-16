@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from krdpc import __version__, autostart
+from krdpc import __version__, autostart, theme
 from krdpc.certificate import CertificateInfo, format_thumbprint
 from krdpc.editdialog import EditDialog
 from krdpc.icons import symbolic_icon
@@ -523,6 +523,7 @@ class MainWindow(QMainWindow):
                 self._apply_autostart()
 
     def _apply_preferences(self) -> None:
+        theme.apply(self._preferences.theme)
         pixels = self._preferences.icon_pixels()
         self._view.setIconSize(QSize(pixels, pixels))
         self._update_tray()

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from krdpc.preferences import ICON_SIZES, Preferences, is_program
+from krdpc.theme import THEMES
 
 
 class PreferencesDialog(QDialog):
@@ -39,6 +40,10 @@ class PreferencesDialog(QDialog):
         for name, label, _pixels in ICON_SIZES:
             self._icon_size.addItem(label, name)
         self._icon_size.setCurrentIndex(max(0, self._icon_size.findData(preferences.icon_size)))
+        self._theme = QComboBox()
+        for name, label in THEMES:
+            self._theme.addItem(label, name)
+        self._theme.setCurrentIndex(max(0, self._theme.findData(preferences.theme)))
         self._confirm_delete = QCheckBox("Ask before deleting a computer")
         self._confirm_delete.setChecked(preferences.confirm_delete)
         self._remember_window = QCheckBox("Remember the window size and the columns")
@@ -68,6 +73,7 @@ class PreferencesDialog(QDialog):
         program_row.addWidget(browse)
 
         form = QFormLayout()
+        form.addRow("Colours", self._theme)
         form.addRow("Icon size", self._icon_size)
         form.addRow("", self._confirm_delete)
         form.addRow("", self._remember_window)
@@ -101,6 +107,7 @@ class PreferencesDialog(QDialog):
             start_minimised=self._start_minimised.isChecked(),
             start_at_login=self._start_at_login.isChecked(),
             icon_size=self._icon_size.currentData(),
+            theme=self._theme.currentData(),
             confirm_delete=self._confirm_delete.isChecked(),
             remember_window=self._remember_window.isChecked(),
             xfreerdp_path=self._xfreerdp.text().strip(),

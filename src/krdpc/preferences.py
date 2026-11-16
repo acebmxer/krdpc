@@ -7,6 +7,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSettings
 
+from krdpc.theme import THEMES
+
 # (stored value, label, pixels)
 ICON_SIZES = (
     ("small", "Small (16 px)", 16),
@@ -25,6 +27,7 @@ class Preferences:
     close_to_tray: bool = False  # only with the tray icon
     start_minimised: bool = False  # only with the tray icon
     start_at_login: bool = False
+    theme: str = "system"  # "system", "light" or "dark"; see krdpc.theme
 
     def normalised(self) -> "Preferences":
         """Closing to the tray and starting hidden make no sense without the tray icon."""
@@ -64,6 +67,9 @@ class PreferencesStore:
         size = str(settings.value("icon_size", defaults.icon_size))
         if size not in {name for name, _label, _pixels in ICON_SIZES}:
             size = defaults.icon_size
+        theme = str(settings.value("theme", defaults.theme))
+        if theme not in {name for name, _label in THEMES}:
+            theme = defaults.theme
         return Preferences(
             icon_size=size,
             confirm_delete=_as_bool(settings.value("confirm_delete"), defaults.confirm_delete),
@@ -73,6 +79,7 @@ class PreferencesStore:
             close_to_tray=_as_bool(settings.value("close_to_tray"), defaults.close_to_tray),
             start_minimised=_as_bool(settings.value("start_minimised"), defaults.start_minimised),
             start_at_login=_as_bool(settings.value("start_at_login"), defaults.start_at_login),
+            theme=theme,
         ).normalised()
 
     def save(self, preferences: Preferences) -> None:
@@ -85,6 +92,7 @@ class PreferencesStore:
         settings.setValue("close_to_tray", preferences.close_to_tray)
         settings.setValue("start_minimised", preferences.start_minimised)
         settings.setValue("start_at_login", preferences.start_at_login)
+        settings.setValue("theme", preferences.theme)
         settings.sync()
 
     def save_window(self, geometry: QByteArray, columns: QByteArray) -> None:
