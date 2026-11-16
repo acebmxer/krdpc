@@ -12,6 +12,9 @@ one with FreeRDP's `xfreerdp`.
 
 ### Added
 
+- **Application menu entry.** A `krdpc.desktop` file and an icon, so krdpc appears in the KDE
+  application menu (Network) and can be pinned to the taskbar. krdpc's window shows the same
+  icon. The README says how to install them.
 - **Password box.** Connecting asks for the password in a box instead of the terminal, with an
   eye at the right end of the field to show what you typed. Tick
   **Remember in KDE Wallet** and krdpc keeps it in KDE Wallet and stops asking; a refused sign-in

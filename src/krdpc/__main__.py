@@ -2,8 +2,10 @@
 
 import signal
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from krdpc import __version__
@@ -16,6 +18,8 @@ def main() -> int:
     app.setApplicationName("krdpc")
     app.setApplicationVersion(__version__)
     app.setDesktopFileName("krdpc")
+    # The installed icon if there is one, otherwise the copy shipped with the code.
+    app.setWindowIcon(QIcon.fromTheme("krdpc", QIcon(str(Path(__file__).with_name("krdpc.svg")))))
     window = MainWindow(ProfileStore())
     window.show()
 

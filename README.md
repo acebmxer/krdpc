@@ -55,13 +55,29 @@ type the address and options every time. krdpc adds that screen and nothing else
 - Python 3, PySide6 (Qt 6) and `keyring` (Fedora: `python3-pyside6`, `python3-keyring`).
 - KDE Wallet, if you want passwords remembered.
 
+## Install
+
+On Fedora KDE, from a clone of this repository. Use Fedora's own PySide6 package,
+not the one from PyPI: it is built against the Qt that Plasma uses, so krdpc
+follows your theme and icons.
+
+```bash
+sudo dnf install freerdp python3-pyside6 python3-keyring
+pip install --user --no-deps .
+install -Dm644 data/krdpc.desktop ~/.local/share/applications/krdpc.desktop
+install -Dm644 src/krdpc/krdpc.svg ~/.local/share/icons/hicolor/scalable/apps/krdpc.svg
+```
+
+krdpc then appears in the application menu under Network. To remove it:
+`pip uninstall krdpc` and delete the two files installed above.
+
 ## Roadmap
 
 1. Repository setup: licence, changelog, issue templates, CI. (done)
 2. Profile list and tabbed edit dialog. (done)
 3. Connect: build the `xfreerdp` command from a profile and start it. (done)
 4. Password box and KDE Wallet. (done)
-5. Application menu entry (`.desktop` file).
+5. Application menu entry (`.desktop` file). (done)
 6. Preferences page in the main menu.
 7. Tests and install documentation.
 

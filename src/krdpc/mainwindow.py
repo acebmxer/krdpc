@@ -4,7 +4,7 @@ import dataclasses
 from collections import deque
 from contextlib import contextmanager
 
-from PySide6.QtCore import QModelIndex, QPoint, QSortFilterProxyModel, Qt, Signal
+from PySide6.QtCore import QModelIndex, QPoint, QSize, QSortFilterProxyModel, Qt, Signal
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -37,6 +37,7 @@ COLUMNS = ("Name", "Group", "Labels", "Server", "Plugin", "Last used")
 COL_NAME, COL_GROUP, COL_LABELS, COL_SERVER, COL_PLUGIN, COL_LAST_USED = range(6)
 _SEARCHED = (COL_NAME, COL_GROUP, COL_LABELS, COL_SERVER)
 ID_ROLE = Qt.ItemDataRole.UserRole
+ICON_SIZE = 24  # the icon beside each computer's name, in pixels
 
 
 class ProfileFilter(QSortFilterProxyModel):
@@ -135,6 +136,7 @@ class MainWindow(QMainWindow):
         self._view.setModel(self._proxy)
         self._view.setRootIsDecorated(False)
         self._view.setUniformRowHeights(True)
+        self._view.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
         self._view.setAlternatingRowColors(True)
         self._view.setSortingEnabled(True)
         self._view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)

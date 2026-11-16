@@ -389,3 +389,8 @@ def test_the_eye_shows_and_hides_what_was_typed(qapp):
         assert field.echoMode() == QLineEdit.EchoMode.Normal
         eye.setChecked(False)
         assert field.echoMode() == QLineEdit.EchoMode.Password
+
+
+def test_the_list_icons_are_24_pixels(window):
+    size = window._view.iconSize()
+    assert (size.width(), size.height()) == (24, 24)
