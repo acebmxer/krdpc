@@ -37,6 +37,12 @@ profile you chose. Anyone who can edit your profile files can make krdpc run
 before/after-connection commands that profiles allow), so keep
 `~/.config/krdpc/` writable by you only.
 
+**What else it can run.** The program set in Preferences as `xfreerdp` (empty means
+the one on your PATH), a profile's "run before connecting" and "run after
+disconnecting" commands, and, with "start at login" on, `krdpc` itself from
+`~/.config/autostart/krdpc.desktop`. All of them run as you, so keep those files
+writable by you only.
+
 **What it does not do.** krdpc speaks no RDP itself and opens no network port.
 Connection security (certificates, NLA, TLS) is FreeRDP's.
 

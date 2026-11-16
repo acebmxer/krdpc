@@ -307,9 +307,7 @@ class MainWindow(QMainWindow):
     def _activated(self, index: QModelIndex) -> None:
         self.connect_requested.emit(index.data(ID_ROLE))
 
-    def _show_context_menu(self, position: QPoint) -> None:
-        if not self._view.indexAt(position).isValid():
-            return
+    def _context_menu(self) -> QMenu:
         menu = QMenu(self)
         menu.addAction(self.connect_action)
         menu.addSeparator()
@@ -317,7 +315,11 @@ class MainWindow(QMainWindow):
         menu.addAction(self.duplicate_action)
         menu.addSeparator()
         menu.addAction(self.delete_action)
-        menu.exec(self._view.viewport().mapToGlobal(position))
+        return menu
+
+    def _show_context_menu(self, position: QPoint) -> None:
+        if self._view.indexAt(position).isValid():
+            self._context_menu().exec(self._view.viewport().mapToGlobal(position))
 
     # ---- changing profiles -----------------------------------------------
 

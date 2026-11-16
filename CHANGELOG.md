@@ -12,6 +12,8 @@ one with FreeRDP's `xfreerdp`.
 
 ### Added
 
+- **Documentation.** The README now covers installing, updating and removing krdpc, using it,
+  what to do when something goes wrong, and what is not built.
 - **Preferences.** **Preferences…** in the main menu (Ctrl+,) sets the size of the icons in the
   list (small, medium or large), whether deleting a computer asks first, whether krdpc remembers
   its window size and column layout between runs, and which `xfreerdp` to use instead of the

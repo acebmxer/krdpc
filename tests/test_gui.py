@@ -9,6 +9,7 @@ from krdpc.launcher import Launcher
 from krdpc.mainwindow import MainWindow
 from krdpc.passworddialog import PasswordDialog
 from krdpc.passwords import PasswordStore, password_key
+from krdpc.preferencesdialog import PreferencesDialog
 from krdpc.profile import Profile
 
 
@@ -394,3 +395,186 @@ def test_the_eye_shows_and_hides_what_was_typed(qapp):
 def test_the_list_icons_are_24_pixels(window):
     size = window._view.iconSize()
     assert (size.width(), size.height()) == (24, 24)
+
+
+# ---- error paths and small corners ------------------------------------------------------
+
+
+def test_an_unreadable_wallet_falls_back_to_asking(window, monkeypatch, wallet):
+    import keyring
+
+    asked = Asked(monkeypatch, password="typed")
+    monkeypatch.setattr(window._launcher, "connect_to", lambda *args: None)
+    select(window, "WorkPC")
+    work = profile_named(window, "WorkPC")
+    window._store.save(dataclasses.replace(work, remember_password=True))
+
+    def locked(*_args):
+        raise RuntimeError("wallet is locked")
+
+    monkeypatch.setattr(keyring, "get_password", locked)
+    window.connect_action.trigger()
+    assert asked.shown == 1
+    assert "wallet is locked" in window.statusBar().currentMessage()
+
+
+def test_a_wallet_that_cannot_save_is_reported_and_nothing_is_remembered(window, monkeypatch):
+    import keyring
+
+    Asked(monkeypatch, password="x", remember=True)
+    shown = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a: shown.append(a[2]))
+    monkeypatch.setattr(window._launcher, "connect_to", lambda *args: None)
+
+    def refuse(*_args):
+        raise RuntimeError("no wallet")
+
+    monkeypatch.setattr(keyring, "set_password", refuse)
+    select(window, "WorkPC")
+    window.connect_action.trigger()
+    assert "no wallet" in shown[0]
+    assert profile_named(window, "WorkPC").remember_password is False
+
+
+def test_a_wallet_that_cannot_forget_is_reported(window, monkeypatch):
+    import keyring
+
+    def refuse(*_args):
+        raise RuntimeError("cannot delete")
+
+    monkeypatch.setattr(keyring, "delete_password", refuse)
+    window._forget_passwords(profile_named(window, "WorkPC").id)
+    assert "cannot delete" in window.statusBar().currentMessage()
+
+
+def test_connecting_to_a_computer_deleted_elsewhere_just_refreshes(window, monkeypatch, store):
+    seen = []
+    monkeypatch.setattr(window._launcher, "connect_to", lambda *args: seen.append(args))
+    select(window, "WorkPC")
+    store.delete(window.selected_id())
+    window.connect_action.trigger()
+    assert seen == [] and "WorkPC" not in window.visible_names()
+
+
+def test_started_for_an_unknown_computer_is_ignored(window):
+    window._launcher.started.emit("long-gone")
+
+
+def test_unticking_remember_in_the_edit_dialog_forgets_the_password(window, monkeypatch, wallet):
+    Asked(monkeypatch, password="keep", remember=True)
+    monkeypatch.setattr(window._launcher, "connect_to", lambda *args: None)
+    select(window, "WorkPC")
+    window.connect_action.trigger()
+    work = profile_named(window, "WorkPC")
+    assert ("krdpc", password_key(work.id)) in wallet.items
+
+    def untick(dialog):
+        dialog._widgets["remember_password"].setChecked(False)
+        return EditDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(EditDialog, "exec", untick)
+    window.edit_action.trigger()
+    assert ("krdpc", password_key(work.id)) not in wallet.items
+
+
+def click_button(box, index):
+    box.buttons()[index].click()
+
+
+def test_the_certificate_question_names_a_new_certificate(window, monkeypatch):
+    texts = []
+
+    def answer(box):
+        texts.append((box.text(), box.informativeText()))
+        click_button(box, 0)  # "Trust and connect"
+
+    monkeypatch.setattr(QMessageBox, "exec", answer)
+    assert window._trust_certificate(profile_named(window, "WorkPC"), certificate()) is True
+    text, details = texts[0]
+    assert "cannot be verified" in text and "WARNING" not in text
+    assert "SHA-256: ab:ab:ab" in details and "Subject: C = XX" in details
+
+
+def test_the_certificate_question_warns_when_it_changed(window, monkeypatch):
+    texts = []
+
+    def answer(box):
+        texts.append(box.text())
+        click_button(box, 1)  # Cancel
+
+    monkeypatch.setattr(QMessageBox, "exec", answer)
+    work = profile_named(window, "WorkPC")
+    assert window._trust_certificate(work, certificate(changed=True)) is False
+    trusted_before = dataclasses.replace(work, trusted_certificate="cd" * 32)
+    assert window._trust_certificate(trusted_before, certificate()) is False
+    assert all("WARNING" in text for text in texts)
+
+
+def test_the_protocol_filter(window):
+    window._proxy.set_protocol("VNC")
+    assert window.visible_names() == []
+    window._proxy.set_protocol("RDP")
+    assert len(window.visible_names()) == 3
+
+
+def test_the_right_click_menu(window):
+    menu = window._context_menu()
+    assert [a.text() for a in menu.actions() if a.text()] == [
+        "Connect",
+        "Edit…",
+        "Duplicate",
+        "Delete…",
+    ]
+
+
+def test_right_clicking_empty_space_opens_no_menu(window, monkeypatch):
+    from PySide6.QtCore import QPoint
+
+    monkeypatch.setattr(window, "_context_menu", lambda: pytest.fail("a menu was opened"))
+    window._show_context_menu(QPoint(5, 5000))
+
+
+def test_the_tray_menu_and_clicks(window, monkeypatch):
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    monkeypatch.setattr(QSystemTrayIcon, "isSystemTrayAvailable", staticmethod(lambda: True))
+    window._preferences.show_tray = True
+    window._apply_preferences()
+    window.show()
+    window._update_tray_menu()
+    assert window._tray_toggle.text() == "Hide krdpc"
+    window._tray_activated(QSystemTrayIcon.ActivationReason.Trigger)
+    assert not window.isVisible()
+    window._update_tray_menu()
+    assert window._tray_toggle.text() == "Show krdpc"
+    window._tray_activated(QSystemTrayIcon.ActivationReason.Context)  # right-click: ignored here
+    assert not window.isVisible()
+    opened = []
+    monkeypatch.setattr(window, "new_profile", lambda: opened.append(True))
+    window._new_from_tray()
+    assert window.isVisible() and opened == [True]
+
+
+def test_quitting_can_be_cancelled_while_connections_are_open(window, monkeypatch):
+    monkeypatch.setattr(window._launcher, "active_count", lambda: 1)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.StandardButton.Cancel)
+    assert window.quit() is False
+    assert window._quitting is False
+
+
+def test_start_at_login_that_cannot_be_written_is_reported(window, monkeypatch):
+    from krdpc import autostart
+    from krdpc.preferences import Preferences
+
+    def refuse(_enabled):
+        raise OSError("read-only folder")
+
+    shown = []
+    monkeypatch.setattr(autostart, "set_enabled", refuse)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a: shown.append(a[2]))
+    monkeypatch.setattr(PreferencesDialog, "exec", lambda d: PreferencesDialog.DialogCode.Accepted)
+    monkeypatch.setattr(
+        PreferencesDialog, "preferences", lambda d: Preferences(start_at_login=True)
+    )
+    window.preferences_action.trigger()
+    assert "read-only folder" in shown[0]
