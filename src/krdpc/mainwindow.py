@@ -177,6 +177,9 @@ class MainWindow(QMainWindow):
 
         self._total = QLabel()
         self.statusBar().addPermanentWidget(self._total, 1)
+        # Which build is running, so testers can tell betas apart at a glance (#9).
+        self._version = QLabel(f"krdpc {updates.installed().release}")
+        self.statusBar().addPermanentWidget(self._version)
         self._proxy.rowsInserted.connect(self._update_total)
         self._proxy.rowsRemoved.connect(self._update_total)
         self._proxy.layoutChanged.connect(self._update_total)

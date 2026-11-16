@@ -19,7 +19,8 @@ one with FreeRDP's `xfreerdp`.
   password, and offers to restart krdpc. **Include beta versions** in Preferences offers betas
   as well as stable releases. If installing is not allowed, krdpc shows the command to run
   instead. A copy installed from a clone only says a new version is out. About krdpc now shows
-  the exact version, beta number included (#6). The result of a check now always reaches the
+  the exact version, beta number included (#6), and so does the right end of the main window's
+  status bar, e.g. `krdpc 0.1.0-beta.2` (#9). The result of a check now always reaches the
   window; before, it was often lost, so no update was ever offered (#10).
 - **Packages.** A `.rpm` for Fedora, a `.deb` for Debian 13 and Ubuntu 26.04 and newer, and a
   package for Arch Linux, each depending on the distribution's own FreeRDP 3, PySide6 and

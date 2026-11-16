@@ -90,7 +90,8 @@ krdpc checks for a new version a few seconds after it starts, and **Check for
 updates…** in the main menu checks now. When one is out, **Update now** downloads
 the package for your distribution, checks it against the release's `SHA256SUMS`,
 and installs it with `dnf`, `apt-get` or `pacman` after your desktop asks for your
-password. Then it offers to restart krdpc.
+password. Then it offers to restart krdpc. The version running is shown at the
+bottom right of the main window, e.g. `krdpc 0.1.0-beta.2`.
 
 In Preferences, **Include beta versions** offers betas (pre-releases) too; with it
 off, only stable releases are offered. **Check for a new version when krdpc

@@ -3,7 +3,7 @@ import dataclasses
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QIcon, QPixmap
-from PySide6.QtWidgets import QMessageBox, QToolButton
+from PySide6.QtWidgets import QLabel, QMessageBox, QToolButton
 
 from krdpc.certificate import CertificateInfo
 from krdpc.editdialog import EditDialog
@@ -13,6 +13,7 @@ from krdpc.passworddialog import PasswordDialog
 from krdpc.passwords import PasswordStore, password_key
 from krdpc.preferencesdialog import PreferencesDialog
 from krdpc.profile import Profile
+from krdpc.updates import Installed
 
 
 def computer(name, server="10.0.0.5", **kwargs):
@@ -93,6 +94,15 @@ def test_main_menu_button_shows_the_icon_when_there_is_one(qapp, store, monkeypa
 def test_lists_computers_sorted_by_name_ignoring_case(window):
     assert window.visible_names() == ["dev fedora", "Seedbox", "WorkPC"]
     assert window._total.text() == "Total 3 items."
+
+
+def test_status_bar_shows_the_running_version(qapp, store, monkeypatch):
+    monkeypatch.setattr(
+        "krdpc.mainwindow.updates.installed", lambda: Installed("0.1.0-beta.5", "rpm")
+    )
+    window = make_window(store, monkeypatch, QIcon())
+    assert window._version.text() == "krdpc 0.1.0-beta.5"
+    assert window._version in window.statusBar().findChildren(QLabel)
 
 
 def test_columns_show_the_remmina_fields(window):
