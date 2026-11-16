@@ -14,7 +14,7 @@ remote computers and opens each one with FreeRDP's `xfreerdp`. It is laid out
 and behaves like Remmina's main window, but it is built with Qt and follows your
 KDE theme.
 
-**Status:** in development. The list and the add/edit dialog work; connecting is next.
+**Status:** in development. The list, the add/edit dialog and connecting work. Until the password box is built, `xfreerdp` asks for the password in the terminal you started krdpc from.
 
 ## Why
 
@@ -55,7 +55,7 @@ type the address and options every time. krdpc adds that screen and nothing else
 
 1. Repository setup: licence, changelog, issue templates, CI. (done)
 2. Profile list and tabbed edit dialog. (done)
-3. Connect: build the `xfreerdp` command from a profile and start it.
+3. Connect: build the `xfreerdp` command from a profile and start it. (done)
 4. Password box and KDE Wallet.
 5. Application menu entry (`.desktop` file).
 6. Preferences page in the main menu.

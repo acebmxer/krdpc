@@ -89,9 +89,6 @@ class Profile:
     console: bool = False
     client_name: str = ""
     keyboard_layout: str = ""
-    left_handed: bool = False
-    disable_smooth_scrolling: bool = False
-    disable_fastpath: bool = False
     extra_arguments: str = ""
 
     # Behaviour

@@ -1,5 +1,6 @@
 """The main window: a searchable, sortable list of saved computers."""
 
+from collections import deque
 from contextlib import contextmanager
 
 from PySide6.QtCore import QModelIndex, QPoint, QSortFilterProxyModel, Qt, Signal
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
 from krdpc import __version__
 from krdpc.editdialog import EditDialog
 from krdpc.icons import symbolic_icon
+from krdpc.launcher import Launcher
 from krdpc.profile import PROTOCOL, Profile
 from krdpc.store import ProfileStore
 
@@ -74,12 +76,24 @@ class ProfileFilter(QSortFilterProxyModel):
 
 
 class MainWindow(QMainWindow):
-    # Emitted by a double-click or Enter on a computer; connecting arrives in stage 3.
+    # Emitted by a double-click or Enter on a computer.
     connect_requested = Signal(str)
 
-    def __init__(self, store: ProfileStore, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        store: ProfileStore,
+        parent: QWidget | None = None,
+        launcher: Launcher | None = None,
+    ) -> None:
         super().__init__(parent)
         self._store = store
+        self._launcher = launcher or Launcher(store, parent=self)
+        self._launcher.started.connect(self._connection_started)
+        self._launcher.failed.connect(self._show_failure)
+        self._failures: deque[tuple[str, str]] = deque()
+        self._failure_box: QMessageBox | None = None
+        self._failure_shown: tuple[str, str] | None = None
+        self.connect_requested.connect(self.connect_profile)
         self.setWindowTitle("krdpc")
         self.resize(780, 460)
 
@@ -156,6 +170,8 @@ class MainWindow(QMainWindow):
         self.search_action = action("Search", "edit-find", QKeySequence.StandardKey.Find)
         self.search_action.setCheckable(True)
         self.search_action.toggled.connect(self._toggle_search)
+        self.connect_action = action("Connect", "network-connect", "Ctrl+Return")
+        self.connect_action.triggered.connect(lambda: self.connect_profile(self.selected_id()))
         self.edit_action = action("Edit…", "document-edit", "F4")
         self.edit_action.triggered.connect(lambda: self.edit_profile(self.selected_id()))
         self.duplicate_action = action("Duplicate", "edit-copy", "Ctrl+D")
@@ -165,7 +181,12 @@ class MainWindow(QMainWindow):
         self.about_action = action("About krdpc", "help-about", slot=self._about)
         self.quit_action = action("Quit", "application-exit", QKeySequence.StandardKey.Quit)
         self.quit_action.triggered.connect(self.close)
-        for each in (self.edit_action, self.duplicate_action, self.delete_action):
+        for each in (
+            self.connect_action,
+            self.edit_action,
+            self.duplicate_action,
+            self.delete_action,
+        ):
             self.addAction(each)  # shortcuts work while the list has focus
 
     def _make_toolbar(self) -> None:
@@ -239,7 +260,12 @@ class MainWindow(QMainWindow):
 
     def _update_actions(self, *_args) -> None:
         has = bool(self.selected_id())
-        for each in (self.edit_action, self.duplicate_action, self.delete_action):
+        for each in (
+            self.connect_action,
+            self.edit_action,
+            self.duplicate_action,
+            self.delete_action,
+        ):
             each.setEnabled(has)
 
     def _toggle_search(self, shown: bool) -> None:
@@ -257,6 +283,8 @@ class MainWindow(QMainWindow):
         if not self._view.indexAt(position).isValid():
             return
         menu = QMenu(self)
+        menu.addAction(self.connect_action)
+        menu.addSeparator()
         menu.addAction(self.edit_action)
         menu.addAction(self.duplicate_action)
         menu.addSeparator()
@@ -264,6 +292,103 @@ class MainWindow(QMainWindow):
         menu.exec(self._view.viewport().mapToGlobal(position))
 
     # ---- changing profiles -----------------------------------------------
+
+    @property
+    def launcher(self) -> Launcher:
+        return self._launcher
+
+    def connect_profile(self, profile_id: str) -> None:
+        if not profile_id:
+            return
+        try:
+            profile = self._store.get(profile_id)
+        except KeyError:
+            self.reload()  # it was removed outside krdpc
+            return
+        already = self._launcher.active_count_for(profile.id)
+        if already:
+            answer = QMessageBox.question(
+                self,
+                "Already open",
+                f"{profile.name} is already open or still connecting. Open another connection?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        self._launcher.connect_to(profile)
+
+    def _connection_started(self, profile_id: str) -> None:
+        self.reload()
+        try:
+            name = self._store.get(profile_id).name
+        except (KeyError, ValueError):
+            return
+        self.statusBar().showMessage(
+            f"Started {name}. If xfreerdp asks for a password, type it in the terminal "
+            "krdpc was started from.",
+            15000,
+        )
+
+    def _show_failure(self, profile_id: str, message: str) -> None:
+        """Queue a problem; they are shown one at a time and the same one only once."""
+        problem = (profile_id, message)
+        if problem == self._failure_shown or problem in self._failures:
+            return
+        self._failures.append(problem)
+        if self._failure_box is None:
+            self._next_failure()
+
+    def _next_failure(self) -> None:
+        if not self._failures:
+            self._failure_box = None
+            self._failure_shown = None
+            return
+        problem = self._failures.popleft()
+        profile_id, message = problem
+        try:
+            name = self._store.get(profile_id).name
+        except (KeyError, ValueError):
+            name = "the computer"
+        summary, _, details = message.partition("\n\n")
+        box = QMessageBox(
+            QMessageBox.Icon.Warning,
+            f"Cannot connect to {name}",
+            summary,
+            QMessageBox.StandardButton.Ok,
+            self,
+        )
+        if details:
+            box.setDetailedText(details)
+        # Open without waiting: a waiting dialog would block the ones that follow it.
+        box.setWindowModality(Qt.WindowModality.WindowModal)
+        box.finished.connect(lambda _result: self._failure_closed(box))
+        self._failure_shown = problem
+        self._failure_box = box
+        box.open()
+
+    def _failure_closed(self, box: QMessageBox) -> None:
+        box.deleteLater()
+        self._failure_box = None
+        self._next_failure()
+
+    def closeEvent(self, event) -> None:
+        count = self._launcher.active_count()
+        if count:
+            answer = QMessageBox.question(
+                self,
+                "Close krdpc",
+                f"{count} connection{' is' if count == 1 else 's are'} open. "
+                "Closing krdpc closes "
+                f"{'it' if count == 1 else 'them'}.",
+                QMessageBox.StandardButton.Close | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if answer != QMessageBox.StandardButton.Close:
+                event.ignore()
+                return
+            self._launcher.stop_all()
+        event.accept()
 
     def new_profile(self) -> None:
         self._edit(Profile())

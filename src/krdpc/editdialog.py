@@ -115,9 +115,6 @@ class EditDialog(QDialog):
         self._add(form, "", "console", QCheckBox("Connect to the console (admin) session"))
         self._add(form, "Client name", "client_name", QLineEdit())
         self._add(form, "Keyboard layout", "keyboard_layout", QLineEdit(placeholderText="Default"))
-        self._add(form, "", "left_handed", QCheckBox("Left-handed mouse"))
-        self._add(form, "", "disable_smooth_scrolling", QCheckBox("Turn off smooth scrolling"))
-        self._add(form, "", "disable_fastpath", QCheckBox("Turn off fast-path"))
         self._add(
             form,
             "Extra arguments",

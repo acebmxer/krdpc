@@ -2,6 +2,7 @@ import pytest
 from PySide6.QtWidgets import QMessageBox
 
 from krdpc.editdialog import EditDialog
+from krdpc.launcher import Launcher
 from krdpc.mainwindow import MainWindow
 from krdpc.profile import Profile
 
@@ -15,7 +16,7 @@ def window(qapp, store):
     store.save(computer("Seedbox", "10.0.0.6", group="Home", labels="media"))
     store.save(computer("dev fedora", "10.0.0.5", last_used="2026-11-15T19:37:03"))
     store.save(computer("WorkPC", "10.1.0.11"))
-    win = MainWindow(store)
+    win = MainWindow(store, launcher=Launcher(store, find_executable=lambda _name: None))
     win.show()
     return win
 
@@ -125,7 +126,8 @@ def test_edit_keeps_id_and_last_used(window, store, monkeypatch):
     assert (after.name, after.last_used) == ("Dev Fedora 2", before.last_used)
 
 
-def test_activating_a_row_requests_a_connection(window):
+def test_activating_a_row_requests_a_connection(window, monkeypatch):
+    monkeypatch.setattr(window._launcher, "connect_to", lambda profile: None)
     seen = []
     window.connect_requested.connect(seen.append)
     index = window._proxy.index(1, 0)
@@ -173,3 +175,81 @@ def test_dialog_refuses_to_save_without_name_or_server(qapp, monkeypatch):
     dialog.accept()
     assert dialog.result() != EditDialog.DialogCode.Accepted
     assert "name" in shown[0] and "server" in shown[0]
+
+
+def test_connect_action_hands_the_profile_to_the_launcher(window, monkeypatch):
+    seen = []
+    monkeypatch.setattr(window._launcher, "connect_to", seen.append)
+    select(window, "WorkPC")
+    window.connect_action.trigger()
+    assert [p.name for p in seen] == ["WorkPC"]
+
+
+def test_double_click_connects_too(window, monkeypatch):
+    seen = []
+    monkeypatch.setattr(window._launcher, "connect_to", seen.append)
+    window._view.activated.emit(window._proxy.index(1, 0))
+    assert [p.name for p in seen] == ["Seedbox"]
+
+
+def test_a_failed_connection_is_shown_with_the_computer_name(window):
+    select(window, "WorkPC")
+    window.connect_action.trigger()  # no xfreerdp in the test launcher
+    box = window._failure_box
+    assert box.windowTitle() == "Cannot connect to WorkPC"
+    assert "xfreerdp was not found" in box.text()
+
+
+def test_failures_are_shown_one_at_a_time_and_never_twice(window):
+    pid = window._store.list()[0].id
+    window._launcher.failed.emit(pid, "first problem\n\nlog line")
+    window._launcher.failed.emit(pid, "second problem")
+    window._launcher.failed.emit(pid, "second problem")  # already waiting
+    window._launcher.failed.emit(pid, "first problem\n\nlog line")  # already showing
+    first = window._failure_box
+    assert first.text() == "first problem"
+    assert first.detailedText() == "log line"
+    first.accept()
+    second = window._failure_box
+    assert second is not first and second.text() == "second problem"
+    second.accept()
+    assert window._failure_box is None
+
+
+def test_asks_before_a_second_connection_to_the_same_computer(window, monkeypatch):
+    seen = []
+    monkeypatch.setattr(window._launcher, "connect_to", seen.append)
+    monkeypatch.setattr(window._launcher, "active_count_for", lambda _id: 1)
+    answer = {"value": QMessageBox.StandardButton.Cancel}
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: answer["value"])
+    select(window, "WorkPC")
+    window.connect_action.trigger()
+    assert seen == []
+    answer["value"] = QMessageBox.StandardButton.Yes
+    window.connect_action.trigger()
+    assert len(seen) == 1
+
+
+def test_starting_shows_a_status_message(window):
+    pid = window._store.list()[0].id
+    window._launcher.started.emit(pid)
+    assert "Started" in window.statusBar().currentMessage()
+
+
+def test_connecting_refreshes_last_used(window, store):
+    profile = store.list()[0]
+    store.touch_last_used(profile.id)
+    window._launcher.started.emit(profile.id)
+    assert any(window._proxy.index(r, 5).data() for r in range(3))
+
+
+def test_closing_with_open_connections_asks(window, monkeypatch):
+    monkeypatch.setattr(window._launcher, "active_count", lambda: 2)
+    stopped = []
+    monkeypatch.setattr(window._launcher, "stop_all", lambda: stopped.append(True))
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.StandardButton.Cancel)
+    assert not window.close()
+    assert stopped == []
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.StandardButton.Close)
+    assert window.close()
+    assert stopped == [True]
