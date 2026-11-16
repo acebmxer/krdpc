@@ -64,6 +64,8 @@ one with FreeRDP's `xfreerdp`.
   starts `xfreerdp` with that computer's saved options and updates its "Last used" time. If
   `xfreerdp` is missing, the options cannot be turned into a command, or the connection fails,
   a message says what went wrong in plain words and shows the last lines `xfreerdp` printed.
+  An option FreeRDP cannot understand (in the extra arguments, for example) is reported as such,
+  with FreeRDP's own words about it, instead of as a licensing problem (#13).
   The commands set to run before connecting and after disconnecting are run, and a failing
   before-command stops the connection. Closing krdpc while connections are open asks first, and
   so does opening a second connection to a computer that is already open. Problems are shown one

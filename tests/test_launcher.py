@@ -177,6 +177,55 @@ def test_bad_extra_arguments_never_start_anything(qapp, store, tmp_path, events)
     assert not (tmp_path / "args").exists()
 
 
+# What FreeRDP 3.33.1 prints when it cannot parse an option (exit 22, 23 or 24).
+_UNKNOWN_OPTION = (
+    "[21:32:25:930] [4:00000004] [ERROR][com.winpr.commandline] - [CommandLineParseArgumentsA]:"
+    " Failed at index 2 [<censored>]: Unexpected keyword"
+)
+_BAD_VALUE = (
+    "[21:32:25:966] [10:0000000a] [ERROR][com.freerdp.client.common.cmdline] -"
+    " [parse_command_line]: Command line parsing failed at 'sec' value 'bogus' [-1002]"
+)
+_USAGE = "\nxfreerdp - A Free Remote Desktop Protocol Implementation\nSee www.freerdp.com for more"
+
+
+@pytest.mark.parametrize(
+    ("printed", "code", "shown"),
+    [
+        (_UNKNOWN_OPTION + _USAGE, 23, "Unexpected keyword"),
+        (_UNKNOWN_OPTION + _USAGE, 24, "Unexpected keyword"),
+        (_BAD_VALUE + _USAGE, 22, "value 'bogus'"),
+        (_USAGE, 255, None),
+    ],
+)
+def test_an_option_freerdp_cannot_parse_is_reported_as_one(
+    qapp, store, tmp_path, events, printed, code, shown
+):
+    (tmp_path / "printed").write_text(printed + "\n")
+    body = f'cat "{tmp_path}/printed" >&2\nexit {code}'
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, body), events)
+    launcher.connect_to(saved(store, extra_arguments="/bogus-option"))
+    wait_for(lambda: events["failed"])
+    message = events["failed"][0][1]
+    assert message.startswith("FreeRDP did not understand one of the options.")
+    assert "licensing" not in message
+    assert "Free Remote Desktop Protocol Implementation" not in message
+    if shown:
+        assert shown in message
+    else:
+        assert (
+            message == "FreeRDP did not understand one of the options. Check the extra arguments."
+        )
+
+
+def test_a_licensing_error_is_still_reported_as_one(qapp, store, tmp_path, events):
+    body = 'echo "[ERROR][com.freerdp.core.license] - license failed" >&2\nexit 24'
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, body), events)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["failed"])
+    assert "licensing problem" in events["failed"][0][1]
+
+
 def test_before_command_runs_first(qapp, store, tmp_path, events):
     marker = tmp_path / "before"
     launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path), events)

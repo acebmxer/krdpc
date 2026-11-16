@@ -1,6 +1,7 @@
 """Starting FreeRDP (`xfreerdp`, or its SDL client without X11) and reporting how it ended."""
 
 import os
+import re
 import shutil
 import socket
 import sys
@@ -48,6 +49,18 @@ _EXIT_MESSAGES = {
     160: "The remote computer is still starting up. Try again in a minute.",
     161: "The remote computer requires NLA. Set Security to NLA on the Advanced tab.",
 }
+
+_OPTIONS_NOT_UNDERSTOOD = _EXIT_MESSAGES[128]
+
+# FreeRDP 3.33.1 stops with 22, 23, 24 or 255 when it cannot parse its options, codes that
+# otherwise mean licensing or other errors, so that case is recognised by what it prints:
+# an ERROR from its command-line parser, or its usage text, which nothing else prints.
+_OPTION_ERROR = re.compile(
+    r"^.*\[ERROR\]\[com\.(?:winpr\.commandline|freerdp\.client\.common\.cmdline)\]"
+    r"(?: - )?(?P<what>.*)$",
+    re.MULTILINE,
+)
+_USAGE_BANNER = re.compile(r"^\S+ - A Free Remote Desktop Protocol Implementation$", re.MULTILINE)
 
 # Exit codes for a refused sign-in: a remembered password that gets one is forgotten.
 LOGIN_REFUSED_CODES = frozenset({132, 134, 154, 155})
@@ -111,6 +124,15 @@ def explain_exit(code: int, program: str = "xfreerdp") -> str:
     if 32 <= code <= 127:
         return "The remote computer reported a problem."
     return f"{program} stopped with code {code}."
+
+
+def option_errors(output: str) -> list[str] | None:
+    """What FreeRDP said about options it could not parse, or None if it parsed them all.
+
+    An empty list means it printed only its usage text."""
+    if not (_OPTION_ERROR.search(output) or _USAGE_BANNER.search(output)):
+        return None
+    return [match["what"].strip() for match in _OPTION_ERROR.finditer(output)]
 
 
 def _program(run: "_Run") -> str:
@@ -259,11 +281,15 @@ class Launcher(QObject):
         if self._stopping:
             self.ended.emit(profile.id)
             return
+        details = "\n".join(run.tail)
         if status == QProcess.ExitStatus.CrashExit:
             problem = f"{_program(run)} stopped unexpectedly."
         elif code in NORMAL_EXIT_CODES:
             self.ended.emit(profile.id)
             return
+        elif (errors := option_errors(run.text)) is not None:
+            # The usage text that follows the errors would only bury them.
+            problem, details = _OPTIONS_NOT_UNDERSTOOD, "\n".join(errors)
         else:
             problem = explain_exit(code, _program(run))
         certificate = parse_certificate(run.text)
@@ -272,5 +298,4 @@ class Launcher(QObject):
             return
         if code in LOGIN_REFUSED_CODES:
             self.login_rejected.emit(profile.id)
-        details = "\n".join(run.tail)
         self.failed.emit(profile.id, f"{problem}\n\n{details}" if details else problem)
