@@ -45,11 +45,15 @@ class FakeBus:
         self.running = set(running)
         self.broken = set(broken)
         self.started = []
+        self.calls = []  # every method, in order
+        self.activation_env = {}  # what D-Bus was told to give the services it starts
+        self.systemd_env = []  # what systemd's user manager was told
 
     def send_and_get_reply(self, message, timeout=None):
         from jeepney import HeaderFields
 
         member = message.header.fields[HeaderFields.member]
+        self.calls.append(member)
         if member == "ListActivatableNames":
             body = (self.activatable,)
         elif member == "NameHasOwner":
@@ -61,6 +65,12 @@ class FakeBus:
                 raise RuntimeError("service exited")
             self.running.add(name)
             body = (1,)
+        elif member == "UpdateActivationEnvironment":
+            self.activation_env.update(message.body[0])
+            body = ()
+        elif member == "SetEnvironment":
+            self.systemd_env.extend(message.body[0])
+            body = ()
         else:
             raise AssertionError(member)
         return type("Reply", (), {"body": body})()
@@ -85,6 +95,52 @@ def test_a_wallet_that_fails_to_start_falls_through_to_the_next():
     )
     assert passwords.start_wallet_service(bus)
     assert bus.started == ["org.freedesktop.secrets", "org.kde.kwalletd6"]
+
+
+SCREEN = {"WAYLAND_DISPLAY": "wayland-0", "DISPLAY": ":0", "HOME": "/home/someone"}
+
+
+def test_the_wallet_is_told_where_the_screen_is_before_it_starts():
+    """Without a desktop session (WSL) D-Bus and systemd know no display, so the wallet aborts."""
+    bus = FakeBus(activatable=["org.kde.kwalletd6", passwords.SYSTEMD], running=[passwords.SYSTEMD])
+    assert passwords.start_wallet_service(bus, SCREEN)
+    assert bus.activation_env == {"WAYLAND_DISPLAY": "wayland-0", "DISPLAY": ":0"}
+    assert sorted(bus.systemd_env) == ["DISPLAY=:0", "WAYLAND_DISPLAY=wayland-0"]
+    assert bus.calls.index("UpdateActivationEnvironment") < bus.calls.index("StartServiceByName")
+    assert bus.calls.index("SetEnvironment") < bus.calls.index("StartServiceByName")
+
+
+def test_systemd_is_not_called_when_it_is_not_on_the_bus():
+    bus = FakeBus(activatable=["org.kde.kwalletd6"])
+    assert passwords.start_wallet_service(bus, SCREEN)
+    assert bus.activation_env == {"WAYLAND_DISPLAY": "wayland-0", "DISPLAY": ":0"}
+    assert "SetEnvironment" not in bus.calls
+
+
+def test_nothing_is_shared_when_no_wallet_needs_starting():
+    bus = FakeBus(activatable=["org.kde.kwalletd6"], running=["org.kde.kwalletd6"])
+    assert not passwords.start_wallet_service(bus, SCREEN)
+    assert "UpdateActivationEnvironment" not in bus.calls
+
+
+def test_no_display_means_nothing_is_shared():
+    bus = FakeBus(activatable=["org.kde.kwalletd6"])
+    assert passwords.start_wallet_service(bus, {"HOME": "/home/someone"})
+    assert "UpdateActivationEnvironment" not in bus.calls
+
+
+def test_a_refused_environment_update_still_starts_the_wallet():
+    class RefusingBus(FakeBus):
+        def send_and_get_reply(self, message, timeout=None):
+            from jeepney import HeaderFields
+
+            if message.header.fields[HeaderFields.member] == "UpdateActivationEnvironment":
+                raise RuntimeError("org.freedesktop.DBus.Error.AccessDenied")
+            return super().send_and_get_reply(message, timeout)
+
+    bus = RefusingBus(activatable=["org.kde.kwalletd6"])
+    assert passwords.start_wallet_service(bus, SCREEN)
+    assert bus.started == ["org.kde.kwalletd6"]
 
 
 def test_nothing_to_start_without_an_installed_wallet():

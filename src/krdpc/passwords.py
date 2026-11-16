@@ -1,6 +1,7 @@
 """Remembered passwords, kept in the desktop's wallet (KDE Wallet) and nowhere else."""
 
 import contextlib
+import os
 
 import keyring
 import keyring.backend
@@ -17,6 +18,19 @@ SERVICE = "krdpc"
 # daemon also brings up KDE's Secret Service.
 WALLET_SERVICES = ("org.freedesktop.secrets", "org.kde.kwalletd6", "org.kde.kwalletd5")
 START_TIMEOUT = 15  # seconds; D-Bus waits for the wallet to come up before answering
+
+# A wallet started by D-Bus (often as a systemd user service) gets the environment D-Bus and
+# systemd were told about, not krdpc's own. A desktop session tells them where the screen is;
+# without one (WSL) nobody does, and the wallet, a Qt program, finds no display and aborts.
+# krdpc hands over the ones it runs with itself, the way a session would.
+DISPLAY_VARIABLES = (
+    "WAYLAND_DISPLAY",
+    "DISPLAY",
+    "XAUTHORITY",
+    "XDG_SESSION_TYPE",
+    "QT_QPA_PLATFORM",
+)
+SYSTEMD = "org.freedesktop.systemd1"
 
 NO_WALLET = (
     "No wallet is running, so krdpc cannot remember passwords. Install KDE Wallet "
@@ -37,7 +51,33 @@ def gateway_key(profile_id: str) -> str:
     return f"{profile_id}:gateway"
 
 
-def start_wallet_service(connection) -> bool:
+def share_display(connection, environ=os.environ) -> None:
+    """Tell D-Bus and systemd's user manager where krdpc's screen is, for services they start.
+
+    Only variables krdpc itself has are sent. Failures are ignored: the wallet may still start.
+    """
+    from jeepney import DBusAddress, new_method_call
+    from jeepney.bus_messages import message_bus
+
+    display = {name: environ[name] for name in DISPLAY_VARIABLES if environ.get(name)}
+    if not display:
+        return
+    with contextlib.suppress(Exception):
+        connection.send_and_get_reply(message_bus.UpdateActivationEnvironment(display), timeout=5)
+    with contextlib.suppress(Exception):
+        # dbus-daemon passes the above on to systemd itself; dbus-broker does too, but older
+        # setups may not, so tell systemd directly when it is on the bus.
+        if connection.send_and_get_reply(message_bus.NameHasOwner(SYSTEMD), timeout=5).body[0]:
+            manager = DBusAddress(
+                "/org/freedesktop/systemd1", bus_name=SYSTEMD, interface=f"{SYSTEMD}.Manager"
+            )
+            assignments = [f"{name}={value}" for name, value in display.items()]
+            connection.send_and_get_reply(
+                new_method_call(manager, "SetEnvironment", "as", (assignments,)), timeout=5
+            )
+
+
+def start_wallet_service(connection, environ=os.environ) -> bool:
     """Ask D-Bus to start the first installed wallet that is not running yet.
 
     `connection` is a blocking jeepney connection to the session bus. True if one started.
@@ -48,9 +88,13 @@ def start_wallet_service(connection) -> bool:
         return connection.send_and_get_reply(message, timeout=timeout).body
 
     activatable = set(call(message_bus.ListActivatableNames())[0])
+    shared = False
     for name in WALLET_SERVICES:
         if name not in activatable or call(message_bus.NameHasOwner(name))[0]:
             continue
+        if not shared:
+            share_display(connection, environ)
+            shared = True
         try:
             call(message_bus.StartServiceByName(name), timeout=START_TIMEOUT)
         except Exception:  # noqa: BLE001, S112 - a wallet that fails to start; try the next one

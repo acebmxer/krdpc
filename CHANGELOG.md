@@ -52,8 +52,9 @@ one with FreeRDP's `xfreerdp`.
   too. The password is sent to `xfreerdp` through a pipe, so it is never on its command line or
   in your profile file. A blank domain is sent as blank, so `xfreerdp` no longer stops to ask for
   one. Where no desktop session has started the wallet (such as Fedora under WSL), krdpc starts
-  the installed KDE Wallet itself; if there is no wallet at all it says so in plain words and
-  keeps asking for the password instead (#8).
+  the installed KDE Wallet itself and tells it where the screen is, so it no longer closes at
+  once (#11); if there is no wallet at all it says so in plain words and keeps asking for the
+  password instead (#8).
 - **Certificate dialog.** When the remote computer's certificate cannot be verified (for example
   a self-signed one), krdpc shows its subject, issuer, dates and SHA-256 fingerprint and asks
   whether to trust it, instead of `xfreerdp` asking in the terminal. Trusting it saves the
