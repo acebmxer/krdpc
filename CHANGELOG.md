@@ -23,7 +23,10 @@ one with FreeRDP's `xfreerdp`.
 - **Packages.** A `.rpm` for Fedora, a `.deb` for Debian 13 and Ubuntu 26.04 and newer, and a
   package for Arch Linux, each depending on the distribution's own FreeRDP 3, PySide6 and
   `keyring`. krdpc now also finds FreeRDP 3's `xfreerdp3` program, which is how Debian and
-  Ubuntu name it. The README says how to install them.
+  Ubuntu name it. The README says how to install them. On a system with no desktop icon theme
+  for Qt (such as Fedora under WSL) the toolbar takes its icons from Breeze or Adwaita, which
+  the packages now recommend, instead of showing blank buttons, and the main menu button reads
+  **Menu** if no icon can be found (#7).
 - **Documentation.** The README now covers installing, updating and removing krdpc, using it,
   what to do when something goes wrong, and what is not built.
 - **Preferences.** **Preferences…** in the main menu (Ctrl+,) sets krdpc's colours (follow the

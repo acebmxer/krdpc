@@ -8,6 +8,7 @@ arch=('any')
 url='https://github.com/acebmxer/krdpc'
 license=('MIT')
 depends=('python' 'pyside6' 'python-keyring' 'freerdp' 'qt6-svg')
+optdepends=('breeze-icons: toolbar icons without a KDE desktop')
 makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
 source=("krdpc-${KRDPC_SRCVER:?set KRDPC_SRCVER}.tar.gz")
 sha256sums=('SKIP')

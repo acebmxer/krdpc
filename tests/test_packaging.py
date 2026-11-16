@@ -54,6 +54,12 @@ def test_every_package_needs_freerdp_3_keyring_pyside6_and_svg_support():
         assert needed in pkgbuild
 
 
+def test_every_package_recommends_breeze_icons():
+    assert "Recommends:     breeze-icon-theme" in read("packaging/rpm/krdpc.spec")
+    assert "Recommends: breeze-icon-theme" in read("packaging/deb/control.in")
+    assert "optdepends=('breeze-icons:" in read("packaging/arch/PKGBUILD")
+
+
 def test_the_files_the_packages_install_exist():
     for path in ("data/krdpc.desktop", "src/krdpc/krdpc.svg", "LICENSE", "CHANGELOG.md"):
         assert (ROOT / path).is_file(), path

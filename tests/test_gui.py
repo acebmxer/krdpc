@@ -1,7 +1,9 @@
 import dataclasses
 
 import pytest
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtWidgets import QMessageBox, QToolButton
 
 from krdpc.certificate import CertificateInfo
 from krdpc.editdialog import EditDialog
@@ -59,6 +61,33 @@ def select(win, name):
             win._view.setCurrentIndex(win._proxy.index(row, 0))
             return
     raise AssertionError(name)
+
+
+def main_menu_button(win):
+    return next(b for b in win.findChildren(QToolButton) if b.toolTip() == "Main menu")
+
+
+def make_window(store, monkeypatch, icon):
+    monkeypatch.setattr("krdpc.mainwindow.symbolic_icon", lambda *_a, **_k: icon)
+    return MainWindow(
+        store,
+        launcher=Launcher(store, find_executable=lambda _name: None),
+        passwords=PasswordStore(),
+    )
+
+
+def test_main_menu_button_says_menu_when_no_icon_is_found(qapp, store, monkeypatch):
+    button = main_menu_button(make_window(store, monkeypatch, QIcon()))
+    assert button.text() == "Menu"
+    assert button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonTextOnly
+
+
+def test_main_menu_button_shows_the_icon_when_there_is_one(qapp, store, monkeypatch):
+    pixmap = QPixmap(22, 22)
+    pixmap.fill(QColor("#232629"))
+    button = main_menu_button(make_window(store, monkeypatch, QIcon(pixmap)))
+    assert not button.icon().isNull()
+    assert button.text() == ""
 
 
 def test_lists_computers_sorted_by_name_ignoring_case(window):

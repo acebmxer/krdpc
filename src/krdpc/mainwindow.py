@@ -249,7 +249,13 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction(self.quit_action)
         button = QToolButton()
-        button.setIcon(symbolic_icon("open-menu", self.palette(), fallback="application-menu"))
+        icon = symbolic_icon("open-menu", self.palette(), fallback="application-menu")
+        if icon.isNull():
+            # No icon theme has one: a word, so the button is never an empty square.
+            button.setText("Menu")
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        else:
+            button.setIcon(icon)
         button.setToolTip("Main menu")
         button.setMenu(menu)
         button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)

@@ -70,7 +70,8 @@ type the address and options every time. krdpc adds that screen and nothing else
 Download the file for your distribution from the
 [Releases page](https://github.com/acebmxer/krdpc/releases) (a beta is published
 there as a pre-release). Each package pulls in FreeRDP 3, PySide6 and `keyring`
-from your distribution, so krdpc follows your Plasma theme.
+from your distribution, so krdpc follows your Plasma theme, and recommends the
+Breeze icons for systems without KDE.
 
 | Distribution | Install | Remove |
 | --- | --- | --- |
@@ -147,6 +148,10 @@ passwords stay in KDE Wallet under the name `krdpc`; remove them there.
   installed. Remove it and use the Fedora package. Without a KDE desktop (for
   example Fedora under WSL) Qt has no theme to follow: choose **Light** or
   **Dark** under **Colours** in Preferences.
+- **The toolbar has no icons, or the menu button says "Menu".** Your desktop gives
+  Qt no icon theme (for example Fedora under WSL) and krdpc found no Breeze or
+  Adwaita icons to use instead. Install `breeze-icon-theme` (Fedora, Debian,
+  Ubuntu) or `breeze-icons` (Arch) and start krdpc again.
 - **"Update not installed".** krdpc could not get permission to install (no
   password box appeared, or it was refused). The box shows the command to run in a
   terminal instead; **Copy command** copies it. The downloaded package stays in
