@@ -12,6 +12,14 @@ one with FreeRDP's `xfreerdp`.
 
 ### Added
 
+- **Updates.** krdpc checks for a new version shortly after it starts (Preferences can turn
+  this off), and **Check for updates…** in the main menu checks at once. **Update now**
+  downloads the package for your distribution from the Releases page, checks it against
+  `SHA256SUMS`, installs it with `dnf`, `apt-get` or `pacman` after your desktop asks for your
+  password, and offers to restart krdpc. **Include beta versions** in Preferences offers betas
+  as well as stable releases. If installing is not allowed, krdpc shows the command to run
+  instead. A copy installed from a clone only says a new version is out. About krdpc now shows
+  the exact version, beta number included (#6).
 - **Packages.** A `.rpm` for Fedora, a `.deb` for Debian 13 and Ubuntu 26.04 and newer, and a
   package for Arch Linux, each depending on the distribution's own FreeRDP 3, PySide6 and
   `keyring`. krdpc now also finds FreeRDP 3's `xfreerdp3` program, which is how Debian and

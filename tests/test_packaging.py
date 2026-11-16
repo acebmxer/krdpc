@@ -80,3 +80,12 @@ def test_the_release_workflow_watches_the_version_file():
         assert distro in workflow
     # Only a manual run from dev makes a beta; main makes a draft.
     assert "--draft" in workflow and "--prerelease" in workflow
+
+
+def test_every_package_is_told_its_release_and_format():
+    # src/krdpc/updates.py reads RELEASE and FORMAT to find and install the next release.
+    script = read("scripts/build_package.sh")
+    assert "release=$version${beta:+-beta.$beta}" in script
+    assert 'RELEASE = "%s"\\nFORMAT = "%s"' in script
+    assert '"$release" "$format" >"$stamp/_package.py"' in script
+    assert not (ROOT / "src" / "krdpc" / "_package.py").exists()

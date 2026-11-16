@@ -64,6 +64,14 @@ class PreferencesDialog(QDialog):
         self._show_tray.toggled.connect(self._tray_changed)
         self._tray_changed()
 
+        self._check_updates = QCheckBox("Check for a new version when krdpc starts")
+        self._check_updates.setChecked(preferences.check_updates)
+        self._include_betas = QCheckBox("Include beta versions (pre-releases)")
+        self._include_betas.setChecked(preferences.include_betas)
+        self._include_betas.setToolTip(
+            "Betas are test versions published before a release. Off: only stable releases."
+        )
+
         self._xfreerdp = QLineEdit(preferences.xfreerdp_path)
         self._xfreerdp.setPlaceholderText("Empty: use xfreerdp3 or xfreerdp from your PATH")
         browse = QPushButton("Browse…")
@@ -81,6 +89,8 @@ class PreferencesDialog(QDialog):
         form.addRow("", self._close_to_tray)
         form.addRow("", self._start_minimised)
         form.addRow("", self._start_at_login)
+        form.addRow("Updates", self._check_updates)
+        form.addRow("", self._include_betas)
         form.addRow("xfreerdp", program_row)
 
         buttons = QDialogButtonBox(
@@ -111,6 +121,8 @@ class PreferencesDialog(QDialog):
             confirm_delete=self._confirm_delete.isChecked(),
             remember_window=self._remember_window.isChecked(),
             xfreerdp_path=self._xfreerdp.text().strip(),
+            check_updates=self._check_updates.isChecked(),
+            include_betas=self._include_betas.isChecked(),
         ).normalised()
 
     def _browse(self) -> None:

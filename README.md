@@ -42,9 +42,11 @@ type the address and options every time. krdpc adds that screen and nothing else
 - Keep each profile as a plain-text file in `~/.config/krdpc/`.
 - Set a few preferences: colours (follow the desktop, light or dark), icon size,
   whether to confirm deleting, remembering the window layout, where `xfreerdp` is,
-  a system tray icon (with closing to the tray and starting hidden), and starting
-  at login.
+  a system tray icon (with closing to the tray and starting hidden), starting
+  at login, checking for a new version at start, and including beta versions.
 - Show a plain error if `xfreerdp` is missing or exits with an error.
+- Update itself: when a newer release is out, krdpc offers to download and install
+  it, with an option to include beta versions.
 
 ## What it does not do
 
@@ -79,8 +81,20 @@ from your distribution, so krdpc follows your Plasma theme.
 Ubuntu 24.04 and older have no PySide6 package, so the `.deb` cannot be installed
 there; use the steps below with a virtual environment instead.
 
-krdpc then appears in the application menu under Network. To update, install the
-newer package the same way.
+krdpc then appears in the application menu under Network.
+
+### Updating
+
+krdpc checks for a new version a few seconds after it starts, and **Check for
+updates…** in the main menu checks now. When one is out, **Update now** downloads
+the package for your distribution, checks it against the release's `SHA256SUMS`,
+and installs it with `dnf`, `apt-get` or `pacman` after your desktop asks for your
+password. Then it offers to restart krdpc.
+
+In Preferences, **Include beta versions** offers betas (pre-releases) too; with it
+off, only stable releases are offered. **Check for a new version when krdpc
+starts** turns the check at start off. A copy installed from a clone (below) says
+when a new version is out but cannot install it: update the clone instead.
 
 ### From a clone of this repository
 
@@ -108,7 +122,8 @@ rm ~/.local/share/icons/hicolor/scalable/apps/krdpc.svg
 
 Either way, krdpc keeps your computers in `~/.config/krdpc/`, your settings in
 `~/.config/krdpc/krdpc.conf`, and (if you turn on "start at login")
-`~/.config/autostart/krdpc.desktop`. Delete those to remove everything. Remembered
+`~/.config/autostart/krdpc.desktop`, plus any update it downloaded but did not
+install in `~/.cache/krdpc/updates/`. Delete those to remove everything. Remembered
 passwords stay in KDE Wallet under the name `krdpc`; remove them there.
 
 ## Using it
@@ -132,6 +147,10 @@ passwords stay in KDE Wallet under the name `krdpc`; remove them there.
   installed. Remove it and use the Fedora package. Without a KDE desktop (for
   example Fedora under WSL) Qt has no theme to follow: choose **Light** or
   **Dark** under **Colours** in Preferences.
+- **"Update not installed".** krdpc could not get permission to install (no
+  password box appeared, or it was refused). The box shows the command to run in a
+  terminal instead; **Copy command** copies it. The downloaded package stays in
+  `~/.cache/krdpc/updates/` until it is installed.
 - **Closing the window does not end krdpc.** With "closing keeps krdpc in the tray"
   on, the window is only hidden. Choose Quit in the tray menu, or in the main
   menu, to end it.

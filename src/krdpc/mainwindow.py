@@ -2,10 +2,20 @@
 
 import dataclasses
 import shutil
+import sys
 from collections import deque
 from contextlib import contextmanager
 
-from PySide6.QtCore import QModelIndex, QPoint, QSize, QSortFilterProxyModel, Qt, Signal
+from PySide6.QtCore import (
+    QModelIndex,
+    QPoint,
+    QProcess,
+    QSize,
+    QSortFilterProxyModel,
+    Qt,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -26,7 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from krdpc import __version__, autostart, theme
+from krdpc import autostart, theme, updates
 from krdpc.certificate import CertificateInfo, format_thumbprint
 from krdpc.editdialog import EditDialog
 from krdpc.icons import symbolic_icon
@@ -37,6 +47,7 @@ from krdpc.preferences import PreferencesStore, is_program
 from krdpc.preferencesdialog import PreferencesDialog
 from krdpc.profile import PROTOCOL, Profile
 from krdpc.store import ProfileStore
+from krdpc.updater import Updater
 
 COLUMNS = ("Name", "Group", "Labels", "Server", "Plugin", "Last used")
 COL_NAME, COL_GROUP, COL_LABELS, COL_SERVER, COL_PLUGIN, COL_LAST_USED = range(6)
@@ -95,6 +106,7 @@ class MainWindow(QMainWindow):
         launcher: Launcher | None = None,
         passwords: PasswordStore | None = None,
         preferences: PreferencesStore | None = None,
+        updater: Updater | None = None,
     ) -> None:
         super().__init__(parent)
         self._store = store
@@ -104,6 +116,9 @@ class MainWindow(QMainWindow):
         self._tray_toggle: QAction | None = None
         self._quitting = False
         self._passwords = passwords or PasswordStore()
+        self._updater = updater or Updater(self, lambda: self._preferences.include_betas)
+        self._updater.restart_requested.connect(self.restart)
+        self._updater.found_quietly.connect(self._update_found_in_tray)
         # What each computer was last connected with, to try again after a certificate is trusted.
         self._retry: dict[str, tuple[str, str]] = {}
         self._launcher = launcher or Launcher(
@@ -205,6 +220,9 @@ class MainWindow(QMainWindow):
         self.delete_action.triggered.connect(lambda: self.delete_profile(self.selected_id()))
         self.preferences_action = action("Preferences…", "configure", "Ctrl+,")
         self.preferences_action.triggered.connect(self.show_preferences)
+        self.update_action = action(
+            "Check for updates…", "system-software-update", slot=self.check_for_updates
+        )
         self.about_action = action("About krdpc", "help-about", slot=self._about)
         self.quit_action = action("Quit", "application-exit", QKeySequence.StandardKey.Quit)
         self.quit_action.triggered.connect(self.quit)
@@ -226,6 +244,7 @@ class MainWindow(QMainWindow):
         bar.addWidget(spacer)
         menu = QMenu(self)
         menu.addAction(self.preferences_action)
+        menu.addAction(self.update_action)
         menu.addAction(self.about_action)
         menu.addSeparator()
         menu.addAction(self.quit_action)
@@ -591,6 +610,35 @@ class MainWindow(QMainWindow):
             self._quitting = False
         return closed
 
+    # ---- updates ----------------------------------------------------------------
+
+    @property
+    def updater(self) -> Updater:
+        return self._updater
+
+    def check_for_updates(self) -> None:
+        self._updater.check()
+
+    def check_for_updates_at_start(self, delay_ms: int = 3000) -> None:
+        """If Preferences allow it, look for a newer release shortly after starting."""
+        if self._preferences.check_updates:
+            QTimer.singleShot(delay_ms, lambda: self._updater.check(quiet=True))
+
+    def _update_found_in_tray(self, version: str) -> None:
+        """A newer release was found while the window was hidden in the tray."""
+        if self._tray is not None:
+            self._tray.showMessage(
+                "krdpc",
+                f"krdpc {version} is available. Choose Check for updates in krdpc's menu.",
+                QSystemTrayIcon.MessageIcon.Information,
+            )
+
+    def restart(self) -> None:
+        """Quit and start the krdpc command again, so a newly installed version runs."""
+        program = sys.argv[0] if is_program(sys.argv[0]) else shutil.which("krdpc")
+        if program and self.quit():
+            QProcess.startDetached(program, sys.argv[1:])
+
     def _find_xfreerdp(self, name: str) -> str | None:
         """The xfreerdp chosen in Preferences, or the first one on the PATH."""
         chosen = self._preferences.xfreerdp_path
@@ -658,6 +706,6 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "About krdpc",
-            f"<b>krdpc {__version__}</b><br>A list of remote computers that opens "
+            f"<b>krdpc {updates.installed().release}</b><br>A list of remote computers that opens "
             "each one with FreeRDP's xfreerdp.",
         )

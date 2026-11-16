@@ -25,6 +25,7 @@ def main() -> int:
     window = MainWindow(ProfileStore())
     if not window.starts_hidden():
         window.show()
+    window.check_for_updates_at_start()
 
     # Ctrl+C in the terminal: end the connections and quit. Python only looks at
     # signals when it is running, so a timer wakes it up now and then.

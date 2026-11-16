@@ -28,6 +28,8 @@ class Preferences:
     start_minimised: bool = False  # only with the tray icon
     start_at_login: bool = False
     theme: str = "system"  # "system", "light" or "dark"; see krdpc.theme
+    check_updates: bool = True  # look for a newer release when krdpc starts
+    include_betas: bool = False  # offer beta (pre-release) versions too
 
     def normalised(self) -> "Preferences":
         """Closing to the tray and starting hidden make no sense without the tray icon."""
@@ -80,6 +82,8 @@ class PreferencesStore:
             start_minimised=_as_bool(settings.value("start_minimised"), defaults.start_minimised),
             start_at_login=_as_bool(settings.value("start_at_login"), defaults.start_at_login),
             theme=theme,
+            check_updates=_as_bool(settings.value("check_updates"), defaults.check_updates),
+            include_betas=_as_bool(settings.value("include_betas"), defaults.include_betas),
         ).normalised()
 
     def save(self, preferences: Preferences) -> None:
@@ -93,6 +97,8 @@ class PreferencesStore:
         settings.setValue("start_minimised", preferences.start_minimised)
         settings.setValue("start_at_login", preferences.start_at_login)
         settings.setValue("theme", preferences.theme)
+        settings.setValue("check_updates", preferences.check_updates)
+        settings.setValue("include_betas", preferences.include_betas)
         settings.sync()
 
     def save_window(self, geometry: QByteArray, columns: QByteArray) -> None:
