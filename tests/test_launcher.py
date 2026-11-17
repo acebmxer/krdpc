@@ -174,6 +174,27 @@ def test_other_failures_are_not_sign_in_refusals(qapp, store, tmp_path, events):
     assert events["rejected"] == []
 
 
+SDL_WINDOW_CLOSED = """echo '[INFO][com.freerdp.client.common] - [client_auto_reconnect_ex]: Network disconnect!'
+exit 145"""
+
+
+def test_closing_the_sdl_window_ends_the_session_quietly(qapp, store, tmp_path, events):
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, SDL_WINDOW_CLOSED), events)
+    profile = saved(store)
+    launcher.connect_to(profile)
+    wait_for(lambda: events["ended"] or events["failed"])
+    assert events["ended"] == [profile.id]
+    assert events["failed"] == []
+
+
+def test_a_cancel_before_the_session_started_is_still_reported(qapp, store, tmp_path, events):
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, "exit 145"), events)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["ended"] or events["failed"])
+    assert events["ended"] == []
+    assert "cancelled" in events["failed"][0][1]
+
+
 def test_normal_exit_codes_do_not_complain(qapp, store, tmp_path, events):
     launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, "exit 11"), events)
     launcher.connect_to(saved(store))

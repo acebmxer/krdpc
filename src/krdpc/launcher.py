@@ -63,6 +63,12 @@ _OPTION_ERROR = re.compile(
 )
 _USAGE_BANNER = re.compile(r"^\S+ - A Free Remote Desktop Protocol Implementation$", re.MULTILINE)
 
+# FreeRDP's SDL client ends with 145 ("connection cancelled") when its window is closed during
+# a session (xfreerdp ends with 0), after printing this line. 145 without the line is a real
+# cancel and is still reported.
+_WINDOW_CLOSED_CODE = 145
+_NETWORK_DISCONNECT = "client_auto_reconnect_ex]: Network disconnect!"
+
 # Exit codes for a refused sign-in: a remembered password that gets one is forgotten.
 LOGIN_REFUSED_CODES = frozenset({132, 134, 154, 155})
 
@@ -326,7 +332,9 @@ class Launcher(QObject):
         refused = code in LOGIN_REFUSED_CODES
         if status == QProcess.ExitStatus.CrashExit:
             problem = f"{_program(run)} stopped unexpectedly."
-        elif code in NORMAL_EXIT_CODES:
+        elif code in NORMAL_EXIT_CODES or (
+            code == _WINDOW_CLOSED_CODE and _NETWORK_DISCONNECT in run.text
+        ):
             self.ended.emit(profile.id)
             return
         elif (errors := option_errors(run.text)) is not None:
