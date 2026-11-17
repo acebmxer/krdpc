@@ -10,6 +10,13 @@ one with FreeRDP's `xfreerdp`.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-16
+
+**The first release.** krdpc keeps a list of your remote computers and opens each one with
+FreeRDP, with packages for Fedora, Debian, Ubuntu and Arch Linux. Coming from a beta: krdpc
+0.1.0-beta.4 and later offer this release as an update; with an earlier beta, install the
+0.1.0 package by hand once.
+
 ### Added
 
 - **Updates.** krdpc checks for a new version shortly after it starts (Preferences can turn

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/acebmxer/krdpc/actions/workflows/ci.yml/badge.svg)](https://github.com/acebmxer/krdpc/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Status: in development](https://img.shields.io/badge/status-in%20development-orange.svg)](#roadmap)
+[![Release](https://img.shields.io/github/v/release/acebmxer/krdpc)](https://github.com/acebmxer/krdpc/releases)
 [![Python](https://img.shields.io/badge/python-3-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Qt for Python](https://img.shields.io/badge/PySide6-Qt%206-41CD52?logo=qt&logoColor=white)](https://doc.qt.io/qtforpython-6/)
 [![KDE Plasma](https://img.shields.io/badge/KDE-Plasma-1D99F3?logo=kde&logoColor=white)](https://kde.org/plasma-desktop/)
@@ -14,8 +14,8 @@ remote computers and opens each one with FreeRDP's `xfreerdp`. It is laid out
 and behaves like Remmina's main window, but it is built with Qt and follows your
 KDE theme.
 
-**Status:** in development, not released yet. Everything below works; the install
-steps are for trying it from a clone of this repository.
+**Status:** version 0.1.0 is the first release. Install it from a package for your
+distribution (below), or from a clone of this repository.
 
 ## Why
 
@@ -191,7 +191,8 @@ passwords stay in KDE Wallet under the name `krdpc`; remove them there.
 6. Preferences page in the main menu. (done)
 7. Tests and install documentation. (done)
 
-The first release is next: the version number and a tag come when the project is ready.
+The first release, 0.1.0, is out. What is still to do is on the
+[issues page](https://github.com/acebmxer/krdpc/issues).
 
 ## Contributing
 
