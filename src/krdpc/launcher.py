@@ -5,6 +5,7 @@ import re
 import shutil
 import socket
 import sys
+import time
 from collections import deque
 from collections.abc import Callable
 
@@ -64,6 +65,15 @@ _USAGE_BANNER = re.compile(r"^\S+ - A Free Remote Desktop Protocol Implementatio
 
 # Exit codes for a refused sign-in: a remembered password that gets one is forgotten.
 LOGIN_REFUSED_CODES = frozenset({132, 134, 154, 155})
+
+# KDE's krdp server refuses a wrong password only after the sign-in step, by ending the session
+# with "ERRINFO_RPC_INITIATED_DISCONNECT" (FreeRDP exit code 1, the same as any disconnect by the
+# server). Seen within this many seconds of starting, it is taken as a refused sign-in.
+_DISCONNECT_REASON = "ERRINFO_RPC_INITIATED_DISCONNECT"
+_SIGN_IN_SECONDS = 30
+_PASSWORD_MAYBE_WRONG = (
+    "The remote computer ended the connection right after connecting. The password may be wrong."
+)
 
 # FreeRDP 3's program is `xfreerdp` on Fedora and Arch but `xfreerdp3` on Debian and Ubuntu,
 # where plain `xfreerdp` may be FreeRDP 2, which krdpc does not support. The 3 name goes first.
@@ -156,6 +166,11 @@ def _program(run: "_Run") -> str:
     return os.path.basename(run.process.program()) or "FreeRDP"
 
 
+def _ended_during_sign_in(run: "_Run") -> bool:
+    """True if the server ended the session soon after starting, as krdp does for a wrong password."""
+    return _DISCONNECT_REASON in run.text and time.monotonic() - run.started_at <= _SIGN_IN_SECONDS
+
+
 class _Run:
     """One connection: its profile, its process and the last lines it printed."""
 
@@ -165,6 +180,7 @@ class _Run:
         self.tail: deque[str] = deque(maxlen=_TAIL_LINES)
         self.partial = ""
         self.text = ""
+        self.started_at = time.monotonic()
 
 
 class Launcher(QObject):
@@ -307,6 +323,7 @@ class Launcher(QObject):
             self.ended.emit(profile.id)
             return
         details = "\n".join(run.tail)
+        refused = code in LOGIN_REFUSED_CODES
         if status == QProcess.ExitStatus.CrashExit:
             problem = f"{_program(run)} stopped unexpectedly."
         elif code in NORMAL_EXIT_CODES:
@@ -315,12 +332,14 @@ class Launcher(QObject):
         elif (errors := option_errors(run.text)) is not None:
             # The usage text that follows the errors would only bury them.
             problem, details = _OPTIONS_NOT_UNDERSTOOD, "\n".join(errors)
+        elif code == 1 and _ended_during_sign_in(run):
+            problem, refused = _PASSWORD_MAYBE_WRONG, True
         else:
             problem = explain_exit(code, _program(run))
         certificate = parse_certificate(run.text)
         if certificate is not None:
             self.certificate_untrusted.emit(profile.id, certificate)
             return
-        if code in LOGIN_REFUSED_CODES:
+        if refused:
             self.login_rejected.emit(profile.id)
         self.failed.emit(profile.id, f"{problem}\n\n{details}" if details else problem)

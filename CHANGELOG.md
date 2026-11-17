@@ -50,7 +50,9 @@ one with FreeRDP's `xfreerdp`.
   eye at the right end of the field to show what you typed. Tick
   **Remember in KDE Wallet** and krdpc keeps it in KDE Wallet and stops asking; a refused sign-in
   makes it forget the saved password, and so does deleting the computer or unticking the option
-  in the edit dialog. If the computer uses a gateway, its password is asked for and remembered
+  in the edit dialog. KDE's krdp server refuses a wrong password by ending the session a moment
+  after connecting; krdpc now says the password may be wrong and forgets the saved one, instead
+  of showing a message about another session (#17). If the computer uses a gateway, its password is asked for and remembered
   too. The password is sent to `xfreerdp` through a pipe, so it is never on its command line or
   in your profile file. A blank domain is sent as blank, so `xfreerdp` no longer stops to ask for
   one. Where no desktop session has started the wallet (such as Fedora under WSL), krdpc starts

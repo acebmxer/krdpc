@@ -136,6 +136,37 @@ def test_a_refused_sign_in_is_reported(qapp, store, tmp_path, events):
     assert "Sign-in failed" in events["failed"][0][1]
 
 
+KRDP_REFUSAL = """echo 'Terminate with (null) due to ERROR_INFO ERRINFO_RPC_INITIATED_DISCONNECT [0x00000001]'
+exit 1"""
+
+
+def test_krdp_ending_the_session_at_once_counts_as_a_refused_sign_in(qapp, store, tmp_path, events):
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, KRDP_REFUSAL), events)
+    profile = saved(store)
+    launcher.connect_to(profile, "wrong")
+    wait_for(lambda: events["failed"])
+    assert events["rejected"] == [profile.id]
+    assert "password may be wrong" in events["failed"][0][1]
+
+
+def test_a_late_disconnect_by_the_server_is_not_a_refused_sign_in(
+    qapp, store, tmp_path, events, monkeypatch
+):
+    monkeypatch.setattr("krdpc.launcher._SIGN_IN_SECONDS", -1)
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, KRDP_REFUSAL), events)
+    launcher.connect_to(saved(store), "right")
+    wait_for(lambda: events["failed"])
+    assert events["rejected"] == []
+    assert "disconnected" in events["failed"][0][1]
+
+
+def test_a_plain_disconnect_is_not_a_refused_sign_in(qapp, store, tmp_path, events):
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, "exit 1"), events)
+    launcher.connect_to(saved(store), "right")
+    wait_for(lambda: events["failed"])
+    assert events["rejected"] == []
+
+
 def test_other_failures_are_not_sign_in_refusals(qapp, store, tmp_path, events):
     launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, "exit 131"), events)
     launcher.connect_to(saved(store))
