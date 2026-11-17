@@ -1,11 +1,15 @@
-"""Starting `xfreerdp` for a profile and reporting how it ended."""
+"""Starting FreeRDP (`xfreerdp`, or its SDL client without X11) and reporting how it ended."""
 
+import os
+import re
 import shutil
+import socket
 import sys
+import time
 from collections import deque
 from collections.abc import Callable
 
-from PySide6.QtCore import QObject, QProcess, Signal
+from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Signal
 
 from krdpc.certificate import parse_certificate
 from krdpc.command import CommandError, build_command
@@ -13,7 +17,7 @@ from krdpc.profile import Profile
 from krdpc.store import ProfileStore
 
 # Exit codes that mean the session simply ended: 0 success, 2 logged off,
-# 11 closed by the user (FreeRDP's XF_EXIT_CODE list).
+# 11 closed by the user (FreeRDP's XF_EXIT_CODE list; its SDL client uses the same numbers).
 NORMAL_EXIT_CODES = frozenset({0, 2, 11})
 
 _EXIT_MESSAGES = {
@@ -22,7 +26,7 @@ _EXIT_MESSAGES = {
     5: "Another connection took over this session.",
     7: "The remote computer refused the connection.",
     9: "Your account is not allowed to connect remotely.",
-    128: "xfreerdp did not understand one of the options. Check the extra arguments.",
+    128: "FreeRDP did not understand one of the options. Check the extra arguments.",
     131: "Could not connect. Check the address and that the computer is switched on.",
     132: "Sign-in was refused. Check the username, domain and password.",
     133: "No security method both sides accept. Try another Security setting on the Advanced tab.",
@@ -47,30 +51,130 @@ _EXIT_MESSAGES = {
     161: "The remote computer requires NLA. Set Security to NLA on the Advanced tab.",
 }
 
+_OPTIONS_NOT_UNDERSTOOD = _EXIT_MESSAGES[128]
+
+# FreeRDP 3.33.1 stops with 22, 23, 24 or 255 when it cannot parse its options, codes that
+# otherwise mean licensing or other errors, so that case is recognised by what it prints:
+# an ERROR from its command-line parser, or its usage text, which nothing else prints.
+_OPTION_ERROR = re.compile(
+    r"^.*\[ERROR\]\[com\.(?:winpr\.commandline|freerdp\.client\.common\.cmdline)\]"
+    r"(?: - )?(?P<what>.*)$",
+    re.MULTILINE,
+)
+_USAGE_BANNER = re.compile(r"^\S+ - A Free Remote Desktop Protocol Implementation$", re.MULTILINE)
+
+# FreeRDP's SDL client ends with 145 ("connection cancelled") when its window is closed during
+# a session (xfreerdp ends with 0), after printing this line. 145 without the line is a real
+# cancel and is still reported.
+_WINDOW_CLOSED_CODE = 145
+_NETWORK_DISCONNECT = "client_auto_reconnect_ex]: Network disconnect!"
+
 # Exit codes for a refused sign-in: a remembered password that gets one is forgotten.
 LOGIN_REFUSED_CODES = frozenset({132, 134, 154, 155})
+
+# KDE's krdp server refuses a wrong password only after the sign-in step, by ending the session
+# with "ERRINFO_RPC_INITIATED_DISCONNECT" (FreeRDP exit code 1, the same as any disconnect by the
+# server). Seen within this many seconds of starting, it is taken as a refused sign-in.
+_DISCONNECT_REASON = "ERRINFO_RPC_INITIATED_DISCONNECT"
+_SIGN_IN_SECONDS = 30
+_PASSWORD_MAYBE_WRONG = (
+    "The remote computer ended the connection right after connecting. The password may be wrong."
+)
 
 # FreeRDP 3's program is `xfreerdp` on Fedora and Arch but `xfreerdp3` on Debian and Ubuntu,
 # where plain `xfreerdp` may be FreeRDP 2, which krdpc does not support. The 3 name goes first.
 XFREERDP_NAMES = ("xfreerdp3", "xfreerdp")
 
+# FreeRDP 3's SDL client draws on Wayland as well as X11, and takes the same options and
+# `/args-from:stdin`. It is used when there is no X11 display for xfreerdp: under WSL when
+# Xwayland is not running, or a Wayland desktop without Xwayland. xfreerdp stays the first
+# choice wherever X11 works, because krdpc reads its certificate prompt (the SDL client
+# asks about certificates in its own window). Same naming as above: the 3 name first.
+SDL_NAMES = ("sdl-freerdp3", "sdl-freerdp")
+
+# Under WSL, Mesa drives the Windows GPU through its `d3d12` driver, and the SDL client crashes
+# (segmentation fault) as soon as it draws its window. Software rendering avoids it, and a
+# remote desktop window does not need the GPU.
+_WSL_SDL_ENVIRONMENT = {"LIBGL_ALWAYS_SOFTWARE": "1"}
+
 _MISSING = (
     "xfreerdp was not found. Install the freerdp package, "
     "or set where it is in Preferences, then try again."
+)
+_NO_DISPLAY = (
+    "There is no X11 display for xfreerdp, and FreeRDP's SDL client, which works without "
+    "one, was not found. Install it (Fedora and Arch: package freerdp; Debian and Ubuntu: "
+    "package freerdp3-sdl), then try again."
 )
 _TAIL_LINES = 12
 _OUTPUT_LIMIT = 200_000  # characters of xfreerdp output kept, to find the certificate in
 
 
-def explain_exit(code: int) -> str:
-    """A plain sentence for an xfreerdp exit code that is not a normal end."""
+def x11_display_available(environ=os.environ) -> bool:
+    """True if `$DISPLAY` names an X11 display that answers.
+
+    A local display (`:0`, `unix:0.0`) is checked by connecting to its socket, as an X11
+    program would; a remote one (`host:0`) is trusted as set. Under WSL, `DISPLAY=:0` is set
+    even when Xwayland has crashed and its socket is gone.
+    """
+    display = environ.get("DISPLAY", "").strip()
+    host, _colon, number = display.rpartition(":")
+    number = number.split(".")[0]
+    if not display or not number.isdigit():
+        return False
+    if host not in ("", "unix"):
+        return True
+    path = f"/tmp/.X11-unix/X{number}"
+    for address in (path, "\0" + path):  # the socket file, then Linux's abstract socket
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+            probe.settimeout(1)
+            try:
+                probe.connect(address)
+            except OSError:
+                continue
+            return True
+    return False
+
+
+def running_under_wsl(environ=os.environ, osrelease: str = "/proc/sys/kernel/osrelease") -> bool:
+    """True inside Windows Subsystem for Linux."""
+    if environ.get("WSL_DISTRO_NAME") or environ.get("WSL_INTEROP"):
+        return True
+    try:
+        with open(osrelease) as handle:
+            return "microsoft" in handle.read().lower()
+    except OSError:
+        return False
+
+
+def explain_exit(code: int, program: str = "xfreerdp") -> str:
+    """A plain sentence for a FreeRDP exit code that is not a normal end."""
     if code in _EXIT_MESSAGES:
         return _EXIT_MESSAGES[code]
     if 16 <= code <= 26:
         return "The remote computer reported a licensing problem."
     if 32 <= code <= 127:
         return "The remote computer reported a problem."
-    return f"xfreerdp stopped with code {code}."
+    return f"{program} stopped with code {code}."
+
+
+def option_errors(output: str) -> list[str] | None:
+    """What FreeRDP said about options it could not parse, or None if it parsed them all.
+
+    An empty list means it printed only its usage text."""
+    if not (_OPTION_ERROR.search(output) or _USAGE_BANNER.search(output)):
+        return None
+    return [match["what"].strip() for match in _OPTION_ERROR.finditer(output)]
+
+
+def _program(run: "_Run") -> str:
+    """The FreeRDP program's name, as messages show it."""
+    return os.path.basename(run.process.program()) or "FreeRDP"
+
+
+def _ended_during_sign_in(run: "_Run") -> bool:
+    """True if the server ended the session soon after starting, as krdp does for a wrong password."""
+    return _DISCONNECT_REASON in run.text and time.monotonic() - run.started_at <= _SIGN_IN_SECONDS
 
 
 class _Run:
@@ -82,6 +186,7 @@ class _Run:
         self.tail: deque[str] = deque(maxlen=_TAIL_LINES)
         self.partial = ""
         self.text = ""
+        self.started_at = time.monotonic()
 
 
 class Launcher(QObject):
@@ -103,10 +208,17 @@ class Launcher(QObject):
         store: ProfileStore,
         find_executable: Callable[[str], str | None] = shutil.which,
         parent: QObject | None = None,
+        has_x11_display: Callable[[], bool] = lambda: True,
+        under_wsl: Callable[[], bool] = lambda: False,
     ) -> None:
+        """`has_x11_display` decides between xfreerdp and the SDL client, and `under_wsl`
+        whether the SDL client needs software rendering; the app passes
+        `x11_display_available` and `running_under_wsl`."""
         super().__init__(parent)
         self._store = store
         self._find = find_executable
+        self._has_x11_display = has_x11_display
+        self._under_wsl = under_wsl
         self._runs: list[_Run] = []
         self._stopping = False
 
@@ -125,10 +237,15 @@ class Launcher(QObject):
             run.process.waitForFinished(2000)
 
     def connect_to(self, profile: Profile, password: str = "", gateway_password: str = "") -> None:
-        """Start a connection. The passwords go to xfreerdp through a pipe, never its arguments."""
-        executable = next((found for name in XFREERDP_NAMES if (found := self._find(name))), None)
+        """Start a connection. The passwords go to FreeRDP through a pipe, never its arguments."""
+        if self._has_x11_display():
+            # xfreerdp first; the SDL client if only that is installed.
+            names, missing = XFREERDP_NAMES + SDL_NAMES, _MISSING
+        else:
+            names, missing = SDL_NAMES, _NO_DISPLAY
+        executable = next((found for name in names if (found := self._find(name))), None)
         if executable is None:
-            self.failed.emit(profile.id, _MISSING)
+            self.failed.emit(profile.id, missing)
             return
         try:
             command = build_command(profile, executable, password, gateway_password or None)
@@ -159,11 +276,17 @@ class Launcher(QObject):
         process.finished.connect(done)
         process.start("/bin/sh", ["-c", profile.before_command])
 
-    # ---- xfreerdp ----------------------------------------------------------
+    # ---- FreeRDP ----------------------------------------------------------
 
     def _start(self, profile: Profile, command: list[str]) -> None:
         process = QProcess(self)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        if os.path.basename(command[0]) in SDL_NAMES and self._under_wsl():
+            environment = QProcessEnvironment.systemEnvironment()
+            for name, value in _WSL_SDL_ENVIRONMENT.items():
+                if not environment.contains(name):  # a value the user set is kept
+                    environment.insert(name, value)
+            process.setProcessEnvironment(environment)
         run = _Run(profile, process)
         process.readyRead.connect(lambda: self._read(run))
         process.finished.connect(lambda code, status: self._finished(run, code, status))
@@ -205,18 +328,26 @@ class Launcher(QObject):
         if self._stopping:
             self.ended.emit(profile.id)
             return
+        details = "\n".join(run.tail)
+        refused = code in LOGIN_REFUSED_CODES
         if status == QProcess.ExitStatus.CrashExit:
-            problem = "xfreerdp stopped unexpectedly."
-        elif code in NORMAL_EXIT_CODES:
+            problem = f"{_program(run)} stopped unexpectedly."
+        elif code in NORMAL_EXIT_CODES or (
+            code == _WINDOW_CLOSED_CODE and _NETWORK_DISCONNECT in run.text
+        ):
             self.ended.emit(profile.id)
             return
+        elif (errors := option_errors(run.text)) is not None:
+            # The usage text that follows the errors would only bury them.
+            problem, details = _OPTIONS_NOT_UNDERSTOOD, "\n".join(errors)
+        elif code == 1 and _ended_during_sign_in(run):
+            problem, refused = _PASSWORD_MAYBE_WRONG, True
         else:
-            problem = explain_exit(code)
+            problem = explain_exit(code, _program(run))
         certificate = parse_certificate(run.text)
         if certificate is not None:
             self.certificate_untrusted.emit(profile.id, certificate)
             return
-        if code in LOGIN_REFUSED_CODES:
+        if refused:
             self.login_rejected.emit(profile.id)
-        details = "\n".join(run.tail)
         self.failed.emit(profile.id, f"{problem}\n\n{details}" if details else problem)

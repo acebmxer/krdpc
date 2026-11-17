@@ -20,26 +20,28 @@ Service, using the `keyring` library). The same goes for a gateway's password.
 A profile also keeps the SHA-256 fingerprint of a certificate you chose to trust
 for that computer.
 
-**How passwords are passed.** krdpc starts `xfreerdp /args-from:stdin` and writes
-the options, password included, to its standard input. The password is never in
-`xfreerdp`'s command line, where any program could read it, and never on disk.
-A password that contains a line break is refused, because that is how the options
-are separated.
+**How passwords are passed.** krdpc starts `xfreerdp /args-from:stdin` (or, with
+no X11 display, FreeRDP's SDL client the same way) and writes the options,
+password included, to its standard input. The password is never in `xfreerdp`'s
+command line, where any program could read it, and never on disk. A password
+that contains a line break is refused, because that is how the options are
+separated.
 
 **Certificates.** `xfreerdp` is told to accept only the certificate whose
 fingerprint you trusted. Any other unverifiable certificate is shown to you
 first. If one differs from what you trusted before, krdpc says so. "Ignore
 certificate errors" switches all of this off for that computer.
 
-**What it runs.** krdpc starts `xfreerdp` as you, with the options of the
-profile you chose. Anyone who can edit your profile files can make krdpc run
-`xfreerdp` with different options (including the raw extra-arguments and
-before/after-connection commands that profiles allow), so keep
-`~/.config/krdpc/` writable by you only.
+**What it runs.** krdpc starts `xfreerdp` (or `sdl-freerdp`) as you, with the
+options of the profile you chose. Anyone who can edit your profile files can
+make krdpc run `xfreerdp` with different options (including the raw
+extra-arguments and before/after-connection commands that profiles allow), so
+keep `~/.config/krdpc/` writable by you only.
 
-**What else it can run.** The program set in Preferences as `xfreerdp` (empty means
-the one on your PATH), a profile's "run before connecting" and "run after
-disconnecting" commands, and, with "start at login" on, `krdpc` itself from
+**What else it can run.** The program set in Preferences as `xfreerdp` (empty
+means `xfreerdp`, or `sdl-freerdp` when there is no X11 display, from your
+PATH), a profile's "run before connecting" and "run after disconnecting"
+commands, and, with "start at login" on, `krdpc` itself from
 `~/.config/autostart/krdpc.desktop`. All of them run as you, so keep those files
 writable by you only.
 

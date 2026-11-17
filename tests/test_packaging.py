@@ -54,6 +54,12 @@ def test_every_package_needs_freerdp_3_keyring_pyside6_and_svg_support():
         assert needed in pkgbuild
 
 
+def test_every_package_recommends_breeze_icons():
+    assert "Recommends:     breeze-icon-theme" in read("packaging/rpm/krdpc.spec")
+    assert "Recommends: breeze-icon-theme" in read("packaging/deb/control.in")
+    assert "optdepends=('breeze-icons:" in read("packaging/arch/PKGBUILD")
+
+
 def test_the_files_the_packages_install_exist():
     for path in ("data/krdpc.desktop", "src/krdpc/krdpc.svg", "LICENSE", "CHANGELOG.md"):
         assert (ROOT / path).is_file(), path
@@ -80,3 +86,12 @@ def test_the_release_workflow_watches_the_version_file():
         assert distro in workflow
     # Only a manual run from dev makes a beta; main makes a draft.
     assert "--draft" in workflow and "--prerelease" in workflow
+
+
+def test_every_package_is_told_its_release_and_format():
+    # src/krdpc/updates.py reads RELEASE and FORMAT to find and install the next release.
+    script = read("scripts/build_package.sh")
+    assert "release=$version${beta:+-beta.$beta}" in script
+    assert 'RELEASE = "%s"\\nFORMAT = "%s"' in script
+    assert '"$release" "$format" >"$stamp/_package.py"' in script
+    assert not (ROOT / "src" / "krdpc" / "_package.py").exists()

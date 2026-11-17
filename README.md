@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/acebmxer/krdpc/actions/workflows/ci.yml/badge.svg)](https://github.com/acebmxer/krdpc/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Status: in development](https://img.shields.io/badge/status-in%20development-orange.svg)](#roadmap)
+[![Release](https://img.shields.io/github/v/release/acebmxer/krdpc)](https://github.com/acebmxer/krdpc/releases)
 [![Python](https://img.shields.io/badge/python-3-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Qt for Python](https://img.shields.io/badge/PySide6-Qt%206-41CD52?logo=qt&logoColor=white)](https://doc.qt.io/qtforpython-6/)
 [![KDE Plasma](https://img.shields.io/badge/KDE-Plasma-1D99F3?logo=kde&logoColor=white)](https://kde.org/plasma-desktop/)
@@ -14,8 +14,8 @@ remote computers and opens each one with FreeRDP's `xfreerdp`. It is laid out
 and behaves like Remmina's main window, but it is built with Qt and follows your
 KDE theme.
 
-**Status:** in development, not released yet. Everything below works; the install
-steps are for trying it from a clone of this repository.
+**Status:** version 0.1.0 is the first release. Install it from a package for your
+distribution (below), or from a clone of this repository.
 
 ## Why
 
@@ -40,10 +40,13 @@ type the address and options every time. krdpc adds that screen and nothing else
 - Ask before trusting a certificate `xfreerdp` cannot verify, and remember your
   answer for that computer.
 - Keep each profile as a plain-text file in `~/.config/krdpc/`.
-- Set a few preferences: icon size, whether to confirm deleting, remembering the
-  window layout, where `xfreerdp` is, a system tray icon (with closing to the tray
-  and starting hidden), and starting at login.
+- Set a few preferences: colours (follow the desktop, light or dark), icon size,
+  whether to confirm deleting, remembering the window layout, where `xfreerdp` is,
+  a system tray icon (with closing to the tray and starting hidden), starting
+  at login, checking for a new version at start, and including beta versions.
 - Show a plain error if `xfreerdp` is missing or exits with an error.
+- Update itself: when a newer release is out, krdpc offers to download and install
+  it, with an option to include beta versions.
 
 ## What it does not do
 
@@ -56,7 +59,9 @@ type the address and options every time. krdpc adds that screen and nothing else
 
 - Linux with KDE Plasma (Fedora 45 is the first target).
 - FreeRDP 3, which provides `xfreerdp` (Fedora and Arch: package `freerdp`; Debian and Ubuntu:
-  package `freerdp3-x11`, which provides `xfreerdp3`). FreeRDP 2 is not supported.
+  package `freerdp3-x11`, which provides `xfreerdp3`). FreeRDP 2 is not supported. Where there
+  is no X11 display, krdpc uses FreeRDP's SDL client instead (`sdl-freerdp`; Fedora and Arch:
+  in `freerdp`; Debian and Ubuntu: package `freerdp3-sdl`).
 - Python 3, PySide6 (Qt 6) and `keyring` (Fedora: `python3-pyside6`, `python3-keyring`).
 - KDE Wallet, if you want passwords remembered.
 
@@ -67,7 +72,8 @@ type the address and options every time. krdpc adds that screen and nothing else
 Download the file for your distribution from the
 [Releases page](https://github.com/acebmxer/krdpc/releases) (a beta is published
 there as a pre-release). Each package pulls in FreeRDP 3, PySide6 and `keyring`
-from your distribution, so krdpc follows your Plasma theme.
+from your distribution, so krdpc follows your Plasma theme, and recommends the
+Breeze icons for systems without KDE.
 
 | Distribution | Install | Remove |
 | --- | --- | --- |
@@ -78,8 +84,21 @@ from your distribution, so krdpc follows your Plasma theme.
 Ubuntu 24.04 and older have no PySide6 package, so the `.deb` cannot be installed
 there; use the steps below with a virtual environment instead.
 
-krdpc then appears in the application menu under Network. To update, install the
-newer package the same way.
+krdpc then appears in the application menu under Network.
+
+### Updating
+
+krdpc checks for a new version a few seconds after it starts, and **Check for
+updates…** in the main menu checks now. When one is out, **Update now** downloads
+the package for your distribution, checks it against the release's `SHA256SUMS`,
+and installs it with `dnf`, `apt-get` or `pacman` after your desktop asks for your
+password. Then it offers to restart krdpc. The version running is shown at the
+bottom right of the main window, e.g. `krdpc 0.1.0-beta.2`.
+
+In Preferences, **Include beta versions** offers betas (pre-releases) too; with it
+off, only stable releases are offered. **Check for a new version when krdpc
+starts** turns the check at start off. A copy installed from a clone (below) says
+when a new version is out but cannot install it: update the clone instead.
 
 ### From a clone of this repository
 
@@ -107,7 +126,8 @@ rm ~/.local/share/icons/hicolor/scalable/apps/krdpc.svg
 
 Either way, krdpc keeps your computers in `~/.config/krdpc/`, your settings in
 `~/.config/krdpc/krdpc.conf`, and (if you turn on "start at login")
-`~/.config/autostart/krdpc.desktop`. Delete those to remove everything. Remembered
+`~/.config/autostart/krdpc.desktop`, plus any update it downloaded but did not
+install in `~/.cache/krdpc/updates/`. Delete those to remove everything. Remembered
 passwords stay in KDE Wallet under the name `krdpc`; remove them there.
 
 ## Using it
@@ -116,7 +136,8 @@ passwords stay in KDE Wallet under the name `krdpc`; remove them there.
 2. Double-click it (or right-click and choose Connect). krdpc asks for the
    password; tick **Remember in KDE Wallet** to be asked only once.
 3. The first time a computer shows a certificate `xfreerdp` cannot verify, krdpc
-   shows it and asks whether to trust it.
+   shows it and asks whether to trust it. (Without an X11 display, FreeRDP's SDL
+   client asks in its own window instead.)
 4. Right-click a computer to edit, duplicate or delete it. **Ctrl+F** searches.
 5. **Preferences** is in the menu at the top right.
 
@@ -124,11 +145,31 @@ passwords stay in KDE Wallet under the name `krdpc`; remove them there.
 
 - **"xfreerdp was not found."** Install the `freerdp` package, or point
   Preferences at the program.
+- **"There is no X11 display for xfreerdp".** xfreerdp needs X11 (on Wayland,
+  through Xwayland). Under WSL, WSL's X11 display can stop, and restarting WSL
+  does not always bring it back. krdpc then uses FreeRDP's SDL client, which
+  works on Wayland: install `freerdp` (Fedora, Arch) or `freerdp3-sdl` (Debian,
+  Ubuntu).
 - **The password is asked every time.** The wallet may be locked or missing.
   krdpc says so in the status bar and asks instead. A refused sign-in also makes
   krdpc forget the saved password.
+- **"No wallet is running."** krdpc found no wallet to keep passwords in. Without
+  a desktop session (for example Fedora under WSL) krdpc starts KDE Wallet itself
+  if it is installed, and KDE Wallet asks you to create a wallet the first time.
+  Install `kf6-kwallet` (Fedora), `kwallet6` (Debian, Ubuntu) or `kwallet`
+  (Arch), or another wallet that offers the Secret Service, and try again.
 - **The window looks plain, not like Plasma.** The PySide6 from PyPI was
-  installed. Remove it and use the Fedora package.
+  installed. Remove it and use the Fedora package. Without a KDE desktop (for
+  example Fedora under WSL) Qt has no theme to follow: choose **Light** or
+  **Dark** under **Colours** in Preferences.
+- **The toolbar has no icons, or the menu button says "Menu".** Your desktop gives
+  Qt no icon theme (for example Fedora under WSL) and krdpc found no Breeze or
+  Adwaita icons to use instead. Install `breeze-icon-theme` (Fedora, Debian,
+  Ubuntu) or `breeze-icons` (Arch) and start krdpc again.
+- **"Update not installed".** krdpc could not get permission to install (no
+  password box appeared, or it was refused). The box shows the command to run in a
+  terminal instead; **Copy command** copies it. The downloaded package stays in
+  `~/.cache/krdpc/updates/` until it is installed.
 - **Closing the window does not end krdpc.** With "closing keeps krdpc in the tray"
   on, the window is only hidden. Choose Quit in the tray menu, or in the main
   menu, to end it.
@@ -150,7 +191,8 @@ passwords stay in KDE Wallet under the name `krdpc`; remove them there.
 6. Preferences page in the main menu. (done)
 7. Tests and install documentation. (done)
 
-The first release is next: the version number and a tag come when the project is ready.
+The first release, 0.1.0, is out. What is still to do is on the
+[issues page](https://github.com/acebmxer/krdpc/issues).
 
 ## Contributing
 

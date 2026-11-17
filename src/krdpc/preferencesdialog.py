@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from krdpc.preferences import ICON_SIZES, Preferences, is_program
+from krdpc.theme import THEMES
 
 
 class PreferencesDialog(QDialog):
@@ -39,6 +40,10 @@ class PreferencesDialog(QDialog):
         for name, label, _pixels in ICON_SIZES:
             self._icon_size.addItem(label, name)
         self._icon_size.setCurrentIndex(max(0, self._icon_size.findData(preferences.icon_size)))
+        self._theme = QComboBox()
+        for name, label in THEMES:
+            self._theme.addItem(label, name)
+        self._theme.setCurrentIndex(max(0, self._theme.findData(preferences.theme)))
         self._confirm_delete = QCheckBox("Ask before deleting a computer")
         self._confirm_delete.setChecked(preferences.confirm_delete)
         self._remember_window = QCheckBox("Remember the window size and the columns")
@@ -59,8 +64,18 @@ class PreferencesDialog(QDialog):
         self._show_tray.toggled.connect(self._tray_changed)
         self._tray_changed()
 
+        self._check_updates = QCheckBox("Check for a new version when krdpc starts")
+        self._check_updates.setChecked(preferences.check_updates)
+        self._include_betas = QCheckBox("Include beta versions (pre-releases)")
+        self._include_betas.setChecked(preferences.include_betas)
+        self._include_betas.setToolTip(
+            "Betas are test versions published before a release. Off: only stable releases."
+        )
+
         self._xfreerdp = QLineEdit(preferences.xfreerdp_path)
-        self._xfreerdp.setPlaceholderText("Empty: use xfreerdp3 or xfreerdp from your PATH")
+        self._xfreerdp.setPlaceholderText(
+            "Empty: find FreeRDP on your PATH (xfreerdp, or sdl-freerdp without X11)"
+        )
         browse = QPushButton("Browse…")
         browse.clicked.connect(self._browse)
         program_row = QHBoxLayout()
@@ -68,6 +83,7 @@ class PreferencesDialog(QDialog):
         program_row.addWidget(browse)
 
         form = QFormLayout()
+        form.addRow("Colours", self._theme)
         form.addRow("Icon size", self._icon_size)
         form.addRow("", self._confirm_delete)
         form.addRow("", self._remember_window)
@@ -75,6 +91,8 @@ class PreferencesDialog(QDialog):
         form.addRow("", self._close_to_tray)
         form.addRow("", self._start_minimised)
         form.addRow("", self._start_at_login)
+        form.addRow("Updates", self._check_updates)
+        form.addRow("", self._include_betas)
         form.addRow("xfreerdp", program_row)
 
         buttons = QDialogButtonBox(
@@ -101,9 +119,12 @@ class PreferencesDialog(QDialog):
             start_minimised=self._start_minimised.isChecked(),
             start_at_login=self._start_at_login.isChecked(),
             icon_size=self._icon_size.currentData(),
+            theme=self._theme.currentData(),
             confirm_delete=self._confirm_delete.isChecked(),
             remember_window=self._remember_window.isChecked(),
             xfreerdp_path=self._xfreerdp.text().strip(),
+            check_updates=self._check_updates.isChecked(),
+            include_betas=self._include_betas.isChecked(),
         ).normalised()
 
     def _browse(self) -> None:

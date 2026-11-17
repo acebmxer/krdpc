@@ -7,9 +7,10 @@
 # installs the .rpm, Debian and Ubuntu the .deb, Arch the .pkg.tar.zst. Each run:
 # install with the distro's own package manager (which also fetches FreeRDP,
 # PySide6 and keyring), check the command, menu entry, icon and Python imports,
-# check the real xfreerdp accepts the arguments krdpc builds, then start the app as
-# a normal user on a virtual X display and fail if it exits within LAUNCH_SECONDS
-# or does not quit on Ctrl+C.
+# check the package knows its release and format (for updating itself), check the
+# real xfreerdp accepts the arguments krdpc builds, then start the app as a normal
+# user on a virtual X display and fail if it exits within LAUNCH_SECONDS or does
+# not quit on Ctrl+C.
 # Uses podman, or docker when podman is not installed.
 set -euo pipefail
 
@@ -34,27 +35,31 @@ case "$distro" in
     fedora)
         image=registry.fedoraproject.org/fedora:latest
         pkg=$(find_one 'krdpc-*.rpm')
+        format=rpm
         install="dnf install -y -q \"/b/$pkg\" xorg-x11-server-Xvfb"
         ;;
     debian | ubuntu)
         if [[ "$distro" == debian ]]; then image=docker.io/library/debian:trixie; else image=docker.io/library/ubuntu:26.04; fi
         pkg=$(find_one 'krdpc_*.deb')
+        format=deb
         install="export DEBIAN_FRONTEND=noninteractive; apt-get update -qq \
             && apt-get install -y -qq \"/b/$pkg\" xvfb >/dev/null"
         ;;
     arch)
         image=docker.io/library/archlinux:latest
         pkg=$(find_one 'krdpc-*.pkg.tar.zst')
+        format=arch
         install="pacman -Syu --noconfirm --needed -q xorg-server-xvfb >/dev/null \
             && pacman -U --noconfirm \"/b/$pkg\" >/dev/null"
         ;;
     *) usage ;;
 esac
 
-# Runs inside the container as root. $1 = launch seconds.
+# Runs inside the container as root. $1 = launch seconds, $2 = package format.
 read -r -d '' check <<'INNER' || true
 set -euo pipefail
 launch_seconds=$1
+export KRDPC_FORMAT=$2
 
 command -v krdpc >/dev/null || { echo "FAIL: no krdpc command"; exit 1; }
 grep -q '^Exec=krdpc' /usr/share/applications/krdpc.desktop \
@@ -79,6 +84,18 @@ app = QApplication([])
 icon = QIcon(str(Path(krdpc.__file__).with_name("krdpc.svg")))
 assert not icon.pixmap(32, 32).isNull(), "the SVG icon does not draw (Qt SVG support missing)"
 print("ok: krdpc", krdpc.__version__, "imports, icon draws, keyring", keyring.__name__)
+PY
+
+# The package knows which release and format it is, so it can update itself.
+python3 - <<'PY'
+import os
+
+from krdpc import updates
+
+current = updates.installed()
+assert current.package_format == os.environ["KRDPC_FORMAT"], current
+assert current.can_update_itself and updates.version_key(current.release), current
+print("ok: package says it is krdpc", current.release, current.package_format)
 PY
 
 # The real xfreerdp must accept every option krdpc can build (an unknown option gives
@@ -131,4 +148,4 @@ echo "ok: krdpc quit on Ctrl+C"
 INNER
 
 "$engine" run --rm --security-opt label=disable -v "$packages":/b:ro -e CHECK="$check" \
-    "$image" sh -c "$install && bash -c \"\$CHECK\" _ $launch_seconds"
+    "$image" sh -c "$install && bash -c \"\$CHECK\" _ $launch_seconds $format"

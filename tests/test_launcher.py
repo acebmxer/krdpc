@@ -136,11 +136,63 @@ def test_a_refused_sign_in_is_reported(qapp, store, tmp_path, events):
     assert "Sign-in failed" in events["failed"][0][1]
 
 
+KRDP_REFUSAL = """echo 'Terminate with (null) due to ERROR_INFO ERRINFO_RPC_INITIATED_DISCONNECT [0x00000001]'
+exit 1"""
+
+
+def test_krdp_ending_the_session_at_once_counts_as_a_refused_sign_in(qapp, store, tmp_path, events):
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, KRDP_REFUSAL), events)
+    profile = saved(store)
+    launcher.connect_to(profile, "wrong")
+    wait_for(lambda: events["failed"])
+    assert events["rejected"] == [profile.id]
+    assert "password may be wrong" in events["failed"][0][1]
+
+
+def test_a_late_disconnect_by_the_server_is_not_a_refused_sign_in(
+    qapp, store, tmp_path, events, monkeypatch
+):
+    monkeypatch.setattr("krdpc.launcher._SIGN_IN_SECONDS", -1)
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, KRDP_REFUSAL), events)
+    launcher.connect_to(saved(store), "right")
+    wait_for(lambda: events["failed"])
+    assert events["rejected"] == []
+    assert "disconnected" in events["failed"][0][1]
+
+
+def test_a_plain_disconnect_is_not_a_refused_sign_in(qapp, store, tmp_path, events):
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, "exit 1"), events)
+    launcher.connect_to(saved(store), "right")
+    wait_for(lambda: events["failed"])
+    assert events["rejected"] == []
+
+
 def test_other_failures_are_not_sign_in_refusals(qapp, store, tmp_path, events):
     launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, "exit 131"), events)
     launcher.connect_to(saved(store))
     wait_for(lambda: events["failed"])
     assert events["rejected"] == []
+
+
+SDL_WINDOW_CLOSED = """echo '[INFO][com.freerdp.client.common] - [client_auto_reconnect_ex]: Network disconnect!'
+exit 145"""
+
+
+def test_closing_the_sdl_window_ends_the_session_quietly(qapp, store, tmp_path, events):
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, SDL_WINDOW_CLOSED), events)
+    profile = saved(store)
+    launcher.connect_to(profile)
+    wait_for(lambda: events["ended"] or events["failed"])
+    assert events["ended"] == [profile.id]
+    assert events["failed"] == []
+
+
+def test_a_cancel_before_the_session_started_is_still_reported(qapp, store, tmp_path, events):
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, "exit 145"), events)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["ended"] or events["failed"])
+    assert events["ended"] == []
+    assert "cancelled" in events["failed"][0][1]
 
 
 def test_normal_exit_codes_do_not_complain(qapp, store, tmp_path, events):
@@ -175,6 +227,55 @@ def test_bad_extra_arguments_never_start_anything(qapp, store, tmp_path, events)
     launcher.connect_to(saved(store, extra_arguments='"oops'))
     assert "extra arguments" in events["failed"][0][1]
     assert not (tmp_path / "args").exists()
+
+
+# What FreeRDP 3.33.1 prints when it cannot parse an option (exit 22, 23 or 24).
+_UNKNOWN_OPTION = (
+    "[21:32:25:930] [4:00000004] [ERROR][com.winpr.commandline] - [CommandLineParseArgumentsA]:"
+    " Failed at index 2 [<censored>]: Unexpected keyword"
+)
+_BAD_VALUE = (
+    "[21:32:25:966] [10:0000000a] [ERROR][com.freerdp.client.common.cmdline] -"
+    " [parse_command_line]: Command line parsing failed at 'sec' value 'bogus' [-1002]"
+)
+_USAGE = "\nxfreerdp - A Free Remote Desktop Protocol Implementation\nSee www.freerdp.com for more"
+
+
+@pytest.mark.parametrize(
+    ("printed", "code", "shown"),
+    [
+        (_UNKNOWN_OPTION + _USAGE, 23, "Unexpected keyword"),
+        (_UNKNOWN_OPTION + _USAGE, 24, "Unexpected keyword"),
+        (_BAD_VALUE + _USAGE, 22, "value 'bogus'"),
+        (_USAGE, 255, None),
+    ],
+)
+def test_an_option_freerdp_cannot_parse_is_reported_as_one(
+    qapp, store, tmp_path, events, printed, code, shown
+):
+    (tmp_path / "printed").write_text(printed + "\n")
+    body = f'cat "{tmp_path}/printed" >&2\nexit {code}'
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, body), events)
+    launcher.connect_to(saved(store, extra_arguments="/bogus-option"))
+    wait_for(lambda: events["failed"])
+    message = events["failed"][0][1]
+    assert message.startswith("FreeRDP did not understand one of the options.")
+    assert "licensing" not in message
+    assert "Free Remote Desktop Protocol Implementation" not in message
+    if shown:
+        assert shown in message
+    else:
+        assert (
+            message == "FreeRDP did not understand one of the options. Check the extra arguments."
+        )
+
+
+def test_a_licensing_error_is_still_reported_as_one(qapp, store, tmp_path, events):
+    body = 'echo "[ERROR][com.freerdp.core.license] - license failed" >&2\nexit 24'
+    launcher = make_launcher(store, lambda _n: fake_xfreerdp(tmp_path, body), events)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["failed"])
+    assert "licensing problem" in events["failed"][0][1]
 
 
 def test_before_command_runs_first(qapp, store, tmp_path, events):
@@ -228,3 +329,174 @@ def test_explain_exit():
     assert "cancelled" in explain_exit(145)
     assert "licensing" in explain_exit(20)
     assert explain_exit(250) == "xfreerdp stopped with code 250."
+
+
+def fake_program(tmp_path, name):
+    folder = tmp_path / name
+    folder.mkdir()
+    return fake_xfreerdp(folder)
+
+
+def test_without_an_x11_display_the_sdl_client_is_used(qapp, store, tmp_path, events):
+    """Under WSL with Xwayland down, xfreerdp cannot open a window; FreeRDP's SDL client can."""
+    programs = {"xfreerdp": fake_program(tmp_path, "x"), "sdl-freerdp": fake_program(tmp_path, "s")}
+    launcher = Launcher(store, find_executable=programs.get, has_x11_display=lambda: False)
+    launcher.ended.connect(events["ended"].append)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["ended"])
+    assert (tmp_path / "s" / "args").exists()
+    assert not (tmp_path / "x" / "args").exists()
+
+
+def test_sdl_freerdp3_is_preferred_over_sdl_freerdp(qapp, store, tmp_path, events):
+    asked = []
+
+    def find(name):
+        asked.append(name)
+        return fake_xfreerdp(tmp_path) if name == "sdl-freerdp3" else None
+
+    launcher = Launcher(store, find_executable=find, has_x11_display=lambda: False)
+    launcher.ended.connect(events["ended"].append)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["ended"])
+    assert asked == ["sdl-freerdp3"]
+
+
+def test_with_an_x11_display_xfreerdp_stays_first(qapp, store, tmp_path, events):
+    programs = {"xfreerdp": fake_program(tmp_path, "x"), "sdl-freerdp": fake_program(tmp_path, "s")}
+    launcher = Launcher(store, find_executable=programs.get, has_x11_display=lambda: True)
+    launcher.ended.connect(events["ended"].append)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["ended"])
+    assert (tmp_path / "x" / "args").exists()
+    assert not (tmp_path / "s" / "args").exists()
+
+
+def test_the_sdl_client_is_used_when_it_is_the_only_one_installed(qapp, store, tmp_path, events):
+    launcher = Launcher(
+        store,
+        find_executable={"sdl-freerdp3": fake_xfreerdp(tmp_path)}.get,
+        has_x11_display=lambda: True,
+    )
+    launcher.ended.connect(events["ended"].append)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["ended"])
+    assert (tmp_path / "args").exists()
+
+
+def test_no_x11_display_and_no_sdl_client_is_a_plain_message(qapp, store, tmp_path, events):
+    launcher = Launcher(
+        store,
+        find_executable={"xfreerdp": fake_xfreerdp(tmp_path)}.get,
+        has_x11_display=lambda: False,
+    )
+    launcher.failed.connect(lambda pid, msg: events["failed"].append(msg))
+    launcher.connect_to(saved(store))
+    assert "no X11 display" in events["failed"][0]
+    assert "freerdp3-sdl" in events["failed"][0]
+    assert not (tmp_path / "args").exists()
+
+
+def test_messages_name_the_program_that_ran(qapp, store, tmp_path, events):
+    script = tmp_path / "sdl-freerdp"
+    script.write_text("#!/bin/sh\ncat > /dev/null\nexit 250\n")
+    script.chmod(0o755)
+    launcher = Launcher(
+        store, find_executable={"sdl-freerdp": str(script)}.get, has_x11_display=lambda: False
+    )
+    launcher.failed.connect(lambda pid, msg: events["failed"].append(msg))
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["failed"])
+    assert events["failed"][0].startswith("sdl-freerdp stopped with code 250.")
+
+
+def test_x11_display_check(tmp_path, monkeypatch):
+    import socket
+
+    from krdpc import launcher
+
+    assert not launcher.x11_display_available({})
+    assert not launcher.x11_display_available({"DISPLAY": "nonsense"})
+    assert launcher.x11_display_available({"DISPLAY": "remotehost:10.0"})
+    # A local display counts only if its socket answers.
+    sockets = tmp_path / "x11"
+    sockets.mkdir()
+    real_connect = socket.socket.connect
+
+    def connect(self, address):
+        if isinstance(address, str) and address.startswith("/tmp/.X11-unix/"):
+            address = str(sockets / address.rsplit("/", 1)[1])
+        return real_connect(self, address)
+
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    assert not launcher.x11_display_available({"DISPLAY": ":7"})
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(sockets / "X7"))
+    server.listen()
+    try:
+        assert launcher.x11_display_available({"DISPLAY": ":7"})
+        assert launcher.x11_display_available({"DISPLAY": "unix:7.0"})
+    finally:
+        server.close()
+
+
+def named_program(tmp_path, name):
+    """A stand-in FreeRDP program called `name` that records the graphics setting it got."""
+    script = tmp_path / name
+    script.write_text(
+        f'#!/bin/sh\ncat > /dev/null\necho "[${{LIBGL_ALWAYS_SOFTWARE-unset}}]" > "{tmp_path}/gl"\n'
+    )
+    script.chmod(0o755)
+    return str(script)
+
+
+def run_and_read_gl(store, tmp_path, events, name, under_wsl, has_x11):
+    launcher = Launcher(
+        store,
+        find_executable={name: named_program(tmp_path, name)}.get,
+        has_x11_display=lambda: has_x11,
+        under_wsl=lambda: under_wsl,
+    )
+    launcher.ended.connect(events["ended"].append)
+    launcher.connect_to(saved(store))
+    wait_for(lambda: events["ended"])
+    return (tmp_path / "gl").read_text().strip()
+
+
+def test_sdl_client_under_wsl_gets_software_rendering(qapp, store, tmp_path, events, monkeypatch):
+    """With WSL's GPU driver the SDL client crashes when it draws (#15)."""
+    monkeypatch.delenv("LIBGL_ALWAYS_SOFTWARE", raising=False)
+    got = run_and_read_gl(store, tmp_path, events, "sdl-freerdp", under_wsl=True, has_x11=False)
+    assert got == "[1]"
+
+
+def test_sdl_client_outside_wsl_is_left_alone(qapp, store, tmp_path, events, monkeypatch):
+    monkeypatch.delenv("LIBGL_ALWAYS_SOFTWARE", raising=False)
+    got = run_and_read_gl(store, tmp_path, events, "sdl-freerdp", under_wsl=False, has_x11=False)
+    assert got == "[unset]"
+
+
+def test_xfreerdp_under_wsl_is_left_alone(qapp, store, tmp_path, events, monkeypatch):
+    monkeypatch.delenv("LIBGL_ALWAYS_SOFTWARE", raising=False)
+    got = run_and_read_gl(store, tmp_path, events, "xfreerdp", under_wsl=True, has_x11=True)
+    assert got == "[unset]"
+
+
+def test_a_graphics_setting_the_user_made_is_kept(qapp, store, tmp_path, events, monkeypatch):
+    monkeypatch.setenv("LIBGL_ALWAYS_SOFTWARE", "0")
+    got = run_and_read_gl(store, tmp_path, events, "sdl-freerdp3", under_wsl=True, has_x11=False)
+    assert got == "[0]"
+
+
+def test_running_under_wsl_check(tmp_path):
+    from krdpc.launcher import running_under_wsl
+
+    missing = str(tmp_path / "none")
+    microsoft = tmp_path / "osrelease"
+    microsoft.write_text("6.6.87.2-microsoft-standard-WSL2\n")
+    plain = tmp_path / "plain"
+    plain.write_text("6.12.0-fedora\n")
+    assert running_under_wsl({"WSL_DISTRO_NAME": "Fedora"}, missing)
+    assert running_under_wsl({}, str(microsoft))
+    assert not running_under_wsl({}, str(plain))
+    assert not running_under_wsl({}, missing)

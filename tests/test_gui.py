@@ -1,7 +1,9 @@
 import dataclasses
 
 import pytest
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtWidgets import QLabel, QMessageBox, QToolButton
 
 from krdpc.certificate import CertificateInfo
 from krdpc.editdialog import EditDialog
@@ -11,6 +13,7 @@ from krdpc.passworddialog import PasswordDialog
 from krdpc.passwords import PasswordStore, password_key
 from krdpc.preferencesdialog import PreferencesDialog
 from krdpc.profile import Profile
+from krdpc.updates import Installed
 
 
 def computer(name, server="10.0.0.5", **kwargs):
@@ -61,9 +64,45 @@ def select(win, name):
     raise AssertionError(name)
 
 
+def main_menu_button(win):
+    return next(b for b in win.findChildren(QToolButton) if b.toolTip() == "Main menu")
+
+
+def make_window(store, monkeypatch, icon):
+    monkeypatch.setattr("krdpc.mainwindow.symbolic_icon", lambda *_a, **_k: icon)
+    return MainWindow(
+        store,
+        launcher=Launcher(store, find_executable=lambda _name: None),
+        passwords=PasswordStore(),
+    )
+
+
+def test_main_menu_button_says_menu_when_no_icon_is_found(qapp, store, monkeypatch):
+    button = main_menu_button(make_window(store, monkeypatch, QIcon()))
+    assert button.text() == "Menu"
+    assert button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonTextOnly
+
+
+def test_main_menu_button_shows_the_icon_when_there_is_one(qapp, store, monkeypatch):
+    pixmap = QPixmap(22, 22)
+    pixmap.fill(QColor("#232629"))
+    button = main_menu_button(make_window(store, monkeypatch, QIcon(pixmap)))
+    assert not button.icon().isNull()
+    assert button.text() == ""
+
+
 def test_lists_computers_sorted_by_name_ignoring_case(window):
     assert window.visible_names() == ["dev fedora", "Seedbox", "WorkPC"]
     assert window._total.text() == "Total 3 items."
+
+
+def test_status_bar_shows_the_running_version(qapp, store, monkeypatch):
+    monkeypatch.setattr(
+        "krdpc.mainwindow.updates.installed", lambda: Installed("0.1.0-beta.5", "rpm")
+    )
+    window = make_window(store, monkeypatch, QIcon())
+    assert window._version.text() == "krdpc 0.1.0-beta.5"
+    assert window._version in window.statusBar().findChildren(QLabel)
 
 
 def test_columns_show_the_remmina_fields(window):

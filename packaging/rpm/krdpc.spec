@@ -17,6 +17,8 @@ BuildRequires:  desktop-file-utils
 # xfreerdp is in the freerdp package. krdpc needs FreeRDP 3 (its /cert: options).
 Requires:       freerdp >= 3.0
 Requires:       qt6-qtsvg
+# Toolbar icons on systems with no desktop theme for Qt (WSL, desktops without KDE).
+Recommends:     breeze-icon-theme
 
 %description
 krdpc is a small native KDE desktop app, laid out like Remmina's main window. It

@@ -49,6 +49,7 @@ def wallet(monkeypatch):
     monkeypatch.setattr(keyring, "get_password", memory.get_password)
     monkeypatch.setattr(keyring, "set_password", memory.set_password)
     monkeypatch.setattr(keyring, "delete_password", memory.delete_password)
+    monkeypatch.setattr(keyring, "get_keyring", lambda: memory)
     return memory
 
 

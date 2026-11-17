@@ -9,6 +9,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from krdpc import __version__
+from krdpc.icons import fill_missing_icons
 from krdpc.mainwindow import MainWindow
 from krdpc.store import ProfileStore
 
@@ -18,6 +19,7 @@ def main() -> int:
     app.setApplicationName("krdpc")
     app.setApplicationVersion(__version__)
     app.setDesktopFileName("krdpc")
+    fill_missing_icons()
     # The installed icon if there is one, otherwise the copy shipped with the code.
     app.setWindowIcon(QIcon.fromTheme("krdpc", QIcon(str(Path(__file__).with_name("krdpc.svg")))))
     # With the tray icon the app must outlive its window; closing for real quits explicitly.
@@ -25,6 +27,7 @@ def main() -> int:
     window = MainWindow(ProfileStore())
     if not window.starts_hidden():
         window.show()
+    window.check_for_updates_at_start()
 
     # Ctrl+C in the terminal: end the connections and quit. Python only looks at
     # signals when it is running, so a timer wakes it up now and then.
