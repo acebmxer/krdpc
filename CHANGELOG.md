@@ -10,6 +10,16 @@ one with FreeRDP's `xfreerdp`.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Maximizing the remote window under WSL.** With FreeRDP's SDL client (used under WSL),
+  a maximized window could stay black: at an odd window height (1920×995 maximized) FreeRDP
+  throws away the remote computer's H.264 picture. Under WSL, computers set to **Follow the
+  window size** now get their picture in the progressive format instead, which has no such
+  limit. A computer set to a fixed size opened a window that could not change size, and
+  maximizing it made WSL end the connection; under WSL its picture is now scaled to fit the
+  window. Full screen is unchanged (#16).
+
 ## [0.1.0] - 2026-11-16
 
 **The first release.** krdpc keeps a list of your remote computers and opens each one with

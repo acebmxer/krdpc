@@ -500,3 +500,117 @@ def test_running_under_wsl_check(tmp_path):
     assert running_under_wsl({}, str(microsoft))
     assert not running_under_wsl({}, str(plain))
     assert not running_under_wsl({}, missing)
+
+
+def run_and_read_arguments(store, tmp_path, events, name, under_wsl, has_x11, **profile):
+    """The arguments a stand-in FreeRDP program called `name` received through the pipe."""
+    script = tmp_path / name
+    script.write_text(f'#!/bin/sh\ncat > "{tmp_path}/stdin"\n')
+    script.chmod(0o755)
+    launcher = Launcher(
+        store,
+        find_executable={name: str(script)}.get,
+        has_x11_display=lambda: has_x11,
+        under_wsl=lambda: under_wsl,
+    )
+    launcher.ended.connect(events["ended"].append)
+    launcher.connect_to(saved(store, **profile))
+    wait_for(lambda: events["ended"])
+    return (tmp_path / "stdin").read_text().split("\n")
+
+
+def test_sdl_client_under_wsl_with_a_fixed_size_scales(qapp, store, tmp_path, events):
+    """WSL drops the SDL client when its fixed-size window is maximized (#16)."""
+    args = run_and_read_arguments(
+        store, tmp_path, events, "sdl-freerdp", True, False, resolution_mode="fixed"
+    )
+    assert "/size:1920x1080" in args
+    assert "/smart-sizing" in args
+
+
+def test_sdl_client_under_wsl_following_the_window_still_resizes(qapp, store, tmp_path, events):
+    """Scaling would blur a picture the remote computer redraws at the window's size."""
+    args = run_and_read_arguments(store, tmp_path, events, "sdl-freerdp", True, False)
+    assert "/dynamic-resolution" in args
+    assert not any(arg.startswith("/smart-sizing") for arg in args)
+
+
+def test_sdl_client_under_wsl_following_the_window_avoids_h264(qapp, store, tmp_path, events):
+    """H.264 at an odd window height is thrown away by FreeRDP: a black window (#16)."""
+    args = run_and_read_arguments(store, tmp_path, events, "sdl-freerdp", True, False)
+    assert "/gfx:progressive" in args
+
+
+@pytest.mark.parametrize("extra", ["/gfx:AVC420", "-gfx"])
+def test_sdl_client_under_wsl_keeps_a_graphics_option_the_user_chose(
+    qapp, store, tmp_path, events, extra
+):
+    args = run_and_read_arguments(
+        store, tmp_path, events, "sdl-freerdp", True, False, extra_arguments=extra
+    )
+    assert "/gfx:progressive" not in args
+    assert args[-2] == extra
+
+
+@pytest.mark.parametrize("mode", ["fixed", "dynamic"])
+@pytest.mark.parametrize("setting", [{"fullscreen": True}, {"multimon": True}])
+def test_sdl_client_under_wsl_in_full_screen_is_left_alone(
+    qapp, store, tmp_path, events, setting, mode
+):
+    args = run_and_read_arguments(
+        store, tmp_path, events, "sdl-freerdp", True, False, resolution_mode=mode, **setting
+    )
+    assert "/smart-sizing" not in args
+    assert "/gfx:progressive" not in args
+
+
+@pytest.mark.parametrize("extra", ["/dynamic-resolution", "/smart-sizing:1600x900"])
+def test_sdl_client_under_wsl_keeps_a_size_option_the_user_chose(
+    qapp, store, tmp_path, events, extra
+):
+    args = run_and_read_arguments(
+        store,
+        tmp_path,
+        events,
+        "sdl-freerdp3",
+        True,
+        False,
+        resolution_mode="fixed",
+        extra_arguments=extra,
+    )
+    assert "/smart-sizing" not in args  # nothing added
+    assert args[-2] == extra  # last before the closing newline
+
+
+def test_sdl_client_under_wsl_puts_scaling_before_the_extra_arguments(
+    qapp, store, tmp_path, events
+):
+    args = run_and_read_arguments(
+        store,
+        tmp_path,
+        events,
+        "sdl-freerdp",
+        True,
+        False,
+        resolution_mode="fixed",
+        extra_arguments="/log-level:WARN",
+    )
+    assert args[-3:-1] == ["/smart-sizing", "/log-level:WARN"]
+
+
+@pytest.mark.parametrize(
+    ("name", "under_wsl", "has_x11"),
+    [
+        ("sdl-freerdp", False, False),
+        ("xfreerdp", True, True),
+    ],
+)
+@pytest.mark.parametrize("mode", ["fixed", "dynamic"])
+def test_options_are_unchanged_elsewhere(
+    qapp, store, tmp_path, events, name, under_wsl, has_x11, mode
+):
+    args = run_and_read_arguments(
+        store, tmp_path, events, name, under_wsl, has_x11, resolution_mode=mode
+    )
+    assert "/smart-sizing" not in args
+    assert "/gfx:progressive" not in args

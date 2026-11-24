@@ -2,6 +2,7 @@
 
 import os
 import re
+import shlex
 import shutil
 import socket
 import sys
@@ -96,6 +97,42 @@ SDL_NAMES = ("sdl-freerdp3", "sdl-freerdp")
 # (segmentation fault) as soon as it draws its window. Software rendering avoids it, and a
 # remote desktop window does not need the GPU.
 _WSL_SDL_ENVIRONMENT = {"LIBGL_ALWAYS_SOFTWARE": "1"}
+
+
+def wsl_sdl_arguments(command: list[str], profile: Profile) -> list[str]:
+    """`command` changed so the SDL client's window works when WSL maximizes or resizes it.
+
+    With a fixed size the SDL client locks its window to that size, yet Windows still
+    maximizes it, and WSL's display server then drops the client for drawing at the old size
+    ("xdg_surface buffer does not match the configured maximized state"). Scaling the picture
+    to the window (`/smart-sizing`) keeps the window resizable.
+
+    With "follow the window size" the remote screen takes the window's size, which can be odd
+    (1920x995 maximized). An H.264 picture of odd height decodes one row short, and FreeRDP
+    3.33 then throws every frame away ("avc420_decompress failure: -1015"): the window stays
+    black. The progressive codec has no such limit, and KDE's krdp falls back to it when H.264
+    is not offered, so only it is offered (`/gfx:progressive`).
+
+    Full screen is left alone (the screen's size is even), and so is any size or `/gfx` option
+    in the extra arguments.
+    """
+    if profile.fullscreen or profile.multimon:
+        return command
+    split = len(command) - len(_extra_arguments(profile))
+    own, extra = command[:split], command[split:]
+    if profile.resolution_mode == "fixed":
+        option, chosen = "/smart-sizing", ("/smart-sizing", "/dynamic-resolution")
+    else:
+        option, chosen = "/gfx:progressive", ("/gfx", "-gfx", "+gfx")
+    if any(arg.startswith(chosen) for arg in extra):
+        return command
+    return [*own, option, *extra]
+
+
+def _extra_arguments(profile: Profile) -> list[str]:
+    """The profile's extra arguments as `build_command` adds them (last on the line)."""
+    return shlex.split(profile.extra_arguments) if profile.extra_arguments.strip() else []
+
 
 _MISSING = (
     "xfreerdp was not found. Install the freerdp package, "
@@ -212,8 +249,8 @@ class Launcher(QObject):
         under_wsl: Callable[[], bool] = lambda: False,
     ) -> None:
         """`has_x11_display` decides between xfreerdp and the SDL client, and `under_wsl`
-        whether the SDL client needs software rendering; the app passes
-        `x11_display_available` and `running_under_wsl`."""
+        whether the SDL client needs software rendering and the options of
+        `wsl_sdl_arguments`; the app passes `x11_display_available` and `running_under_wsl`."""
         super().__init__(parent)
         self._store = store
         self._find = find_executable
@@ -252,6 +289,8 @@ class Launcher(QObject):
         except CommandError as error:
             self.failed.emit(profile.id, str(error))
             return
+        if os.path.basename(executable) in SDL_NAMES and self._under_wsl():
+            command = wsl_sdl_arguments(command, profile)
         if profile.before_command:
             self._run_before(profile, command)
         else:

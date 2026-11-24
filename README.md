@@ -149,7 +149,10 @@ passwords stay in KDE Wallet under the name `krdpc`; remove them there.
   through Xwayland). Under WSL, WSL's X11 display can stop, and restarting WSL
   does not always bring it back. krdpc then uses FreeRDP's SDL client, which
   works on Wayland: install `freerdp` (Fedora, Arch) or `freerdp3-sdl` (Debian,
-  Ubuntu).
+  Ubuntu). Under WSL a computer set to a fixed size is scaled to fit its window,
+  so it can be maximized, and one set to follow the window size gets its picture
+  in FreeRDP's progressive format instead of H.264, which goes black at some
+  window sizes.
 - **The password is asked every time.** The wallet may be locked or missing.
   krdpc says so in the status bar and asks instead. A refused sign-in also makes
   krdpc forget the saved password.
