@@ -411,21 +411,38 @@ class MainWindow(QMainWindow):
                 if profile.gateway_server:
                     self._passwords.set(gateway_key(profile.id), gateway)
             else:
-                self._forget_in_wallet(profile.id)
+                self._forget_in_wallet(profile.id, profile.remember_password)
         except PasswordStoreError as error:
             QMessageBox.warning(self, "KDE Wallet", str(error))
             remember = False
         if remember != profile.remember_password:
             self._store.save(dataclasses.replace(profile, remember_password=remember))
 
-    def _forget_in_wallet(self, profile_id: str) -> None:
-        self._passwords.delete(password_key(profile_id))
-        self._passwords.delete(gateway_key(profile_id))
+    def _forget_in_wallet(self, profile_id: str, remembered: bool = True) -> None:
+        """Remove the computer's passwords from the wallet.
 
-    def _forget_passwords(self, profile_id: str) -> None:
-        """The sign-in was refused: stop using a remembered password that may be out of date."""
+        A computer that never remembered a password has nothing there: with no wallet running
+        that is not worth a warning (or starting one), so only a running wallet is asked.
+        """
+        delete = self._passwords.delete if remembered else self._passwords.delete_if_running
+        delete(password_key(profile_id))
+        delete(gateway_key(profile_id))
+
+    def _was_remembered(self, profile_id: str) -> bool:
+        """True if the computer is set to keep its password in the wallet."""
         try:
-            self._forget_in_wallet(profile_id)
+            return self._store.get(profile_id).remember_password
+        except (KeyError, ValueError):
+            return False
+
+    def _forget_passwords(self, profile_id: str, remembered: bool | None = None) -> None:
+        """Stop using a remembered password that may be out of date (a refused sign-in, a
+        computer deleted or no longer set to remember). `remembered` is whether the computer
+        was set to keep one; left out, the saved computer is looked at."""
+        if remembered is None:
+            remembered = self._was_remembered(profile_id)
+        try:
+            self._forget_in_wallet(profile_id, remembered)
         except PasswordStoreError as error:
             self.statusBar().showMessage(str(error), 10000)
 
@@ -678,28 +695,44 @@ class MainWindow(QMainWindow):
         self._edit(Profile())
 
     def edit_profile(self, profile_id: str) -> None:
-        if profile_id:
-            self._edit(self._store.get(profile_id))
+        if not profile_id:
+            return
+        try:
+            profile = self._store.get(profile_id)
+        except KeyError:
+            self.reload()  # it was removed outside krdpc
+            return
+        self._edit(profile)
 
     def _edit(self, profile: Profile) -> None:
         dialog = EditDialog(profile, self)
         if dialog.exec() == EditDialog.DialogCode.Accepted:
             saved = self._store.save(dialog.profile())
             if profile.remember_password and not saved.remember_password:
-                self._forget_passwords(saved.id)
+                self._forget_passwords(saved.id, remembered=True)
             self.reload()
             self.select_id(saved.id)
 
     def duplicate_profile(self, profile_id: str) -> None:
-        if profile_id:
+        if not profile_id:
+            return
+        try:
             copy = self._store.duplicate(profile_id)
-            self.reload()
-            self.select_id(copy.id)
+        except KeyError:
+            self.reload()  # it was removed outside krdpc
+            return
+        self.reload()
+        self.select_id(copy.id)
 
     def delete_profile(self, profile_id: str) -> None:
         if not profile_id:
             return
-        name = self._store.get(profile_id).name
+        try:
+            profile = self._store.get(profile_id)
+        except KeyError:
+            self.reload()  # it was removed outside krdpc
+            return
+        name = profile.name
         confirmed = not self._preferences.confirm_delete  # not asked: go straight ahead
         if self._preferences.confirm_delete:
             answer = QMessageBox.question(
@@ -712,7 +745,7 @@ class MainWindow(QMainWindow):
             confirmed = answer == QMessageBox.StandardButton.Yes
         if confirmed:
             self._store.delete(profile_id)
-            self._forget_passwords(profile_id)
+            self._forget_passwords(profile_id, profile.remember_password)
             self.reload()
 
     def _about(self) -> None:

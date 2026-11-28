@@ -145,6 +145,17 @@ class PasswordStore:
         except Exception as error:  # noqa: BLE001
             raise PasswordStoreError(f"The wallet could not save the password: {error}") from None
 
+    def delete_if_running(self, key: str) -> None:
+        """Remove a password from a wallet that is already running, and do nothing otherwise.
+
+        For clearing out a password that was probably never kept: with no wallet running
+        nothing is stored, so no wallet is started and no problem is reported. Failures of a
+        running wallet are still reported.
+        """
+        if isinstance(keyring.get_keyring(), fail.Keyring):
+            return
+        self.delete(key)
+
     def delete(self, key: str) -> None:
         """Remove a password; one that is not there is not an error."""
         self._ensure_wallet()

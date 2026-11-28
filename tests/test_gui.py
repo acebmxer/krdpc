@@ -495,6 +495,69 @@ def test_connecting_to_a_computer_deleted_elsewhere_just_refreshes(window, monke
     assert seen == [] and "WorkPC" not in window.visible_names()
 
 
+def no_wallet(monkeypatch):
+    """No wallet is running and none can be started (as under WSL)."""
+    import keyring
+    from keyring.backends import fail
+
+    from krdpc import passwords
+
+    monkeypatch.setattr(keyring, "get_keyring", lambda: fail.Keyring())
+    monkeypatch.setattr(passwords, "_start_wallet", lambda: False)
+
+
+def test_connecting_without_a_wallet_says_nothing_when_nothing_is_remembered(window, monkeypatch):
+    no_wallet(monkeypatch)
+    Asked(monkeypatch, password="typed", remember=False)
+    shown = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a: shown.append(a[2]))
+    seen = []
+    monkeypatch.setattr(window._launcher, "connect_to", lambda *args: seen.append(args))
+    select(window, "WorkPC")
+    window.connect_action.trigger()
+    assert shown == [] and window.statusBar().currentMessage() == ""
+    assert seen[0][1:] == ("typed", "")
+
+
+def test_deleting_a_computer_without_a_wallet_says_nothing_when_nothing_is_remembered(
+    window, monkeypatch
+):
+    no_wallet(monkeypatch)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.StandardButton.Yes)
+    select(window, "WorkPC")
+    window.delete_action.trigger()
+    assert "WorkPC" not in window.visible_names()
+    assert window.statusBar().currentMessage() == ""
+
+
+def test_deleting_a_computer_that_remembered_a_password_still_reports_a_missing_wallet(
+    window, monkeypatch
+):
+    select(window, "WorkPC")
+    work = profile_named(window, "WorkPC")
+    window._store.save(dataclasses.replace(work, remember_password=True))
+    no_wallet(monkeypatch)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: QMessageBox.StandardButton.Yes)
+    window.delete_action.trigger()
+    assert "No wallet is running" in window.statusBar().currentMessage()
+
+
+def test_edit_duplicate_and_delete_of_a_computer_removed_elsewhere_just_refresh(
+    window, monkeypatch, store
+):
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question", lambda *a: asked.append(a))
+    monkeypatch.setattr(EditDialog, "exec", lambda dialog: asked.append("edit"))
+    for action in (window.edit_action, window.duplicate_action, window.delete_action):
+        gone = store.save(Profile(name="Gone", server="10.0.0.9"))
+        window.reload()
+        select(window, "Gone")
+        store.delete(gone.id)
+        action.trigger()  # must not raise
+        assert "Gone" not in window.visible_names()
+    assert asked == []
+
+
 def test_started_for_an_unknown_computer_is_ignored(window):
     window._launcher.started.emit("long-gone")
 

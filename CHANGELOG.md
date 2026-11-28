@@ -12,6 +12,14 @@ one with FreeRDP's `xfreerdp`.
 
 ### Fixed
 
+- **A wallet warning on every connect.** Without a wallet running (for example under WSL),
+  connecting with **Remember in KDE Wallet** unticked showed "No wallet is running" each time,
+  and deleting a computer showed it in the status bar, though nothing had ever been remembered.
+  krdpc now says nothing when there is no wallet and no password was remembered. The warning
+  stays for a computer that did remember a password (#21).
+- **Edit, Duplicate and Delete on a computer removed outside krdpc.** If a computer's file was
+  deleted while krdpc was open, these did nothing and the row stayed. They now refresh the list,
+  as Connect already did (#22).
 - **Installing an update.** The downloaded package could be swapped for another file after krdpc
   had checked it and before it was installed with your password. The installing step now copies
   the package to a folder only the administrator can change, checks it against `SHA256SUMS`
