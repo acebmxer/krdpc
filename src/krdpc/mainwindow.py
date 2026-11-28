@@ -127,6 +127,11 @@ class MainWindow(QMainWindow):
             parent=self,
             has_x11_display=x11_display_available,
             under_wsl=running_under_wsl,
+            remembering_windows=lambda: self._preferences.remember_window,
+            recall_window=lambda profile: self._preferences_store.session_window(profile.id),
+            remember_window=lambda profile, window: self._preferences_store.save_session_window(
+                profile.id, window
+            ),
         )
         self._launcher.started.connect(self._connection_started)
         self._launcher.failed.connect(self._show_failure)
@@ -746,6 +751,7 @@ class MainWindow(QMainWindow):
         if confirmed:
             self._store.delete(profile_id)
             self._forget_passwords(profile_id, profile.remember_password)
+            self._preferences_store.forget_session_window(profile_id)
             self.reload()
 
     def _about(self) -> None:

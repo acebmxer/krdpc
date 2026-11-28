@@ -10,6 +10,14 @@ one with FreeRDP's `xfreerdp`.
 
 ## [Unreleased]
 
+### Added
+
+- **The session window remembers its size.** When you resize or maximize the window of a
+  connection and close it, the next connection to that computer opens the window the same way.
+  It is kept for each computer, for computers set to follow the window size, and switched off
+  with **Remember the window sizes and the columns** in Preferences. Not for FreeRDP's SDL
+  client (used under WSL) (#23).
+
 ### Fixed
 
 - **A wallet warning on every connect.** Without a wallet running (for example under WSL),

@@ -10,11 +10,12 @@ import time
 from collections import deque
 from collections.abc import Callable
 
-from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Signal
+from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 
 from krdpc.certificate import parse_certificate
 from krdpc.command import CommandError, build_command
 from krdpc.profile import Profile
+from krdpc.sessionwindow import SessionWindow, read_session_window, window_arguments
 from krdpc.store import ProfileStore
 
 # Exit codes that mean the session simply ended: 0 success, 2 logged off,
@@ -129,6 +130,15 @@ def wsl_sdl_arguments(command: list[str], profile: Profile) -> list[str]:
     return [*own, option, *extra]
 
 
+def remembered_window_arguments(
+    command: list[str], profile: Profile, window: SessionWindow | None
+) -> list[str]:
+    """`command` with the options that open the window as it was last left (before the extras)."""
+    split = len(command) - len(_extra_arguments(profile))
+    own, extra = command[:split], command[split:]
+    return [*own, *window_arguments(profile, window, extra), *extra]
+
+
 def _extra_arguments(profile: Profile) -> list[str]:
     """The profile's extra arguments as `build_command` adds them (last on the line)."""
     return shlex.split(profile.extra_arguments) if profile.extra_arguments.strip() else []
@@ -224,6 +234,8 @@ class _Run:
         self.partial = ""
         self.text = ""
         self.started_at = time.monotonic()
+        self.window: SessionWindow | None = None  # the last size seen while it ran
+        self.watcher: QTimer | None = None
 
 
 class Launcher(QObject):
@@ -247,15 +259,27 @@ class Launcher(QObject):
         parent: QObject | None = None,
         has_x11_display: Callable[[], bool] = lambda: True,
         under_wsl: Callable[[], bool] = lambda: False,
+        remembering_windows: Callable[[], bool] = lambda: False,
+        recall_window: Callable[[Profile], SessionWindow | None] = lambda _profile: None,
+        remember_window: Callable[[Profile, SessionWindow], None] = lambda _profile, _window: None,
+        read_window: Callable[[int], SessionWindow | None] = read_session_window,
     ) -> None:
         """`has_x11_display` decides between xfreerdp and the SDL client, and `under_wsl`
         whether the SDL client needs software rendering and the options of
-        `wsl_sdl_arguments`; the app passes `x11_display_available` and `running_under_wsl`."""
+        `wsl_sdl_arguments`; the app passes `x11_display_available` and `running_under_wsl`.
+
+        While `remembering_windows()` is true, an xfreerdp window's size is read as the session
+        runs (`read_window`, given the process id), handed to `remember_window` when it ends and
+        asked back from `recall_window` for the next connection."""
         super().__init__(parent)
         self._store = store
         self._find = find_executable
         self._has_x11_display = has_x11_display
         self._under_wsl = under_wsl
+        self._remembering_windows = remembering_windows
+        self._recall_window = recall_window
+        self._remember_window = remember_window
+        self._read_window = read_window
         self._runs: list[_Run] = []
         self._stopping = False
 
@@ -289,8 +313,11 @@ class Launcher(QObject):
         except CommandError as error:
             self.failed.emit(profile.id, str(error))
             return
-        if os.path.basename(executable) in SDL_NAMES and self._under_wsl():
-            command = wsl_sdl_arguments(command, profile)
+        if os.path.basename(executable) in SDL_NAMES:
+            if self._under_wsl():
+                command = wsl_sdl_arguments(command, profile)
+        elif self._remembering_windows():
+            command = remembered_window_arguments(command, profile, self._recall_window(profile))
         if profile.before_command:
             self._run_before(profile, command)
         else:
@@ -336,11 +363,26 @@ class Launcher(QObject):
         if process.waitForStarted(5000):
             process.write(("\n".join(command[1:]) + "\n").encode())
             process.closeWriteChannel()
+            if os.path.basename(command[0]) not in SDL_NAMES and self._remembering_windows():
+                self._watch_window(run)
             try:
                 self._store.touch_last_used(profile.id)
             except (KeyError, OSError, ValueError):
                 pass  # the list's "Last used" is a convenience, never a reason to fail
             self.started.emit(profile.id)
+
+    def _watch_window(self, run: _Run) -> None:
+        """Note the session window's size twice a second, so the last one is known at the end."""
+
+        def look() -> None:
+            window = self._read_window(run.process.processId())
+            if window is not None:
+                run.window = window
+
+        run.watcher = QTimer(self)
+        run.watcher.setInterval(500)
+        run.watcher.timeout.connect(look)
+        run.watcher.start()
 
     def _read(self, run: _Run) -> None:
         text = bytes(run.process.readAll()).decode(errors="replace")
@@ -362,6 +404,10 @@ class Launcher(QObject):
         if run in self._runs:
             self._runs.remove(run)
         profile = run.profile
+        if run.watcher is not None:
+            run.watcher.stop()
+            if run.window is not None:
+                self._remember_window(profile, run.window)
         if profile.after_command:
             QProcess.startDetached("/bin/sh", ["-c", profile.after_command])
         if self._stopping:

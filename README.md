@@ -34,6 +34,8 @@ type the address and options every time. krdpc adds that screen and nothing else
 - Connect with a double-click or the Connect button: krdpc starts `xfreerdp` with
   the saved options, and dynamic resolution if you want it, so the desktop
   follows the window size.
+- Reopen each session window at the size you left it, or maximized (not with
+  FreeRDP's SDL client under WSL).
 - Ask for the password when you connect, or remember it in KDE Wallet if you tick
   the box. The password is never written into the profile file or put on the
   `xfreerdp` command line.
@@ -41,7 +43,7 @@ type the address and options every time. krdpc adds that screen and nothing else
   answer for that computer.
 - Keep each profile as a plain-text file in `~/.config/krdpc/`.
 - Set a few preferences: colours (follow the desktop, light or dark), icon size,
-  whether to confirm deleting, remembering the window layout, where `xfreerdp` is,
+  whether to confirm deleting, remembering the window sizes and columns, where `xfreerdp` is,
   a system tray icon (with closing to the tray and starting hidden), starting
   at login, checking for a new version at start, and including beta versions.
 - Show a plain error if `xfreerdp` is missing or exits with an error.

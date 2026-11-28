@@ -46,7 +46,7 @@ class PreferencesDialog(QDialog):
         self._theme.setCurrentIndex(max(0, self._theme.findData(preferences.theme)))
         self._confirm_delete = QCheckBox("Ask before deleting a computer")
         self._confirm_delete.setChecked(preferences.confirm_delete)
-        self._remember_window = QCheckBox("Remember the window size and the columns")
+        self._remember_window = QCheckBox("Remember the window sizes and the columns")
         self._remember_window.setChecked(preferences.remember_window)
 
         self._show_tray = QCheckBox("Show an icon in the system tray")

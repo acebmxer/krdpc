@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSettings
 
+from krdpc.sessionwindow import SessionWindow
 from krdpc.theme import THEMES
 
 # (stored value, label, pixels)
@@ -115,3 +116,35 @@ class PreferencesStore:
         if not isinstance(geometry, QByteArray) or not isinstance(columns, QByteArray):
             return None
         return geometry, columns
+
+    def save_session_window(self, profile_id: str, window: SessionWindow) -> None:
+        """Remember how this computer's session window was left.
+
+        A maximized window keeps the size it had before (stored apart), so un-maximizing it
+        later is not a surprise.
+        """
+        settings = self._settings()
+        group = f"sessions/{profile_id}"
+        settings.setValue(f"{group}/maximized", window.maximized)
+        if not window.maximized:
+            settings.setValue(f"{group}/width", window.width)
+            settings.setValue(f"{group}/height", window.height)
+        settings.sync()
+
+    def session_window(self, profile_id: str) -> SessionWindow | None:
+        """How this computer's session window was last left, or None if it never was."""
+        settings = self._settings()
+        group = f"sessions/{profile_id}"
+        maximized = _as_bool(settings.value(f"{group}/maximized"), False)
+        try:
+            width = int(settings.value(f"{group}/width", 0))
+            height = int(settings.value(f"{group}/height", 0))
+        except (TypeError, ValueError):
+            return None
+        window = SessionWindow(width, height, maximized)
+        return window if maximized or window.usable() else None
+
+    def forget_session_window(self, profile_id: str) -> None:
+        settings = self._settings()
+        settings.remove(f"sessions/{profile_id}")
+        settings.sync()
