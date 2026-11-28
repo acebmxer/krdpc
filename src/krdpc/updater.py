@@ -14,7 +14,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication, QMessageBox, QProgressDialog, QWidget
 
 from krdpc import updates
-from krdpc.updates import Installed, Release, UpdateError
+from krdpc.updates import Installed, Package, Release, UpdateError
 
 # Runs `work` away from the window, then calls `done(result)` or `failed(message)` on the
 # window's thread. Tests swap in one that runs straight away.
@@ -183,7 +183,7 @@ class Updater(QObject):
         folder, cancel, report = self._folder, self._cancel, self._relay.progress.emit
         self._run(
             lambda: updates.download(release, package_format, folder, report, cancel),
-            lambda path: self._downloaded(Path(path), package_format, release),
+            lambda package: self._downloaded(package, package_format, release),
             self._download_failed,
         )
 
@@ -210,7 +210,8 @@ class Updater(QObject):
 
     # ---- installing -----------------------------------------------------------
 
-    def _downloaded(self, path: Path, package_format: str, release: Release) -> None:
+    def _downloaded(self, package: Package, package_format: str, release: Release) -> None:
+        path = package.path
         if self._cancel.is_set():
             self._busy = False
             self._close_progress()
@@ -239,7 +240,7 @@ class Updater(QObject):
             lambda error: self._install_did_not_start(process, error, path, package_format)
         )
         self._process = process
-        process.start(pkexec, updates.pkexec_arguments(package_format, path))
+        process.start(pkexec, updates.pkexec_arguments(package_format, package))
 
     def _install_did_not_start(
         self, process: QProcess, error: QProcess.ProcessError, path: Path, package_format: str
@@ -267,6 +268,16 @@ class Updater(QObject):
         if status == QProcess.ExitStatus.NormalExit and code == 0:
             path.unlink(missing_ok=True)
             self._ask_to_restart(release)
+        elif code == updates.PACKAGE_CHANGED:
+            # Someone or something replaced the file after it was checked: do not offer it
+            # again, by hand either.
+            path.unlink(missing_ok=True)
+            QMessageBox.warning(
+                self._window,
+                "Update not installed",
+                "The downloaded package changed after it was checked, so it was not "
+                "installed and has been deleted. Check for updates again to download it anew.",
+            )
         elif code == updates.PKEXEC_DISMISSED:
             QMessageBox.information(
                 self._window,

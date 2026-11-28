@@ -191,16 +191,26 @@ def expected_checksum(sums: str, name: str) -> str | None:
     return None
 
 
+@dataclass(frozen=True)
+class Package:
+    """A downloaded package and the SHA-256 it was checked against."""
+
+    path: Path
+    sha256: str
+
+
 def download(
     release: Release,
     package_format: str,
     folder: Path,
     progress: Callable[[int, int], None] = lambda _done, _total: None,
     cancel: threading.Event | None = None,
-) -> Path:
+) -> Package:
     """Download the package for this format and check it against SHA256SUMS.
 
-    Returns the file. Raises UpdateError (Cancelled if `cancel` was set).
+    Returns the file and the checksum it matched; the install step checks the file against
+    that checksum again, as root (see `INSTALL_SCRIPT`). Raises UpdateError (Cancelled if
+    `cancel` was set).
     """
     found = release.package(package_format)
     if found is None:
@@ -243,18 +253,23 @@ def download(
         partial.unlink(missing_ok=True)
         raise UpdateError(f"{name} did not match its checksum, so it was not installed.")
     os.replace(partial, target)
-    return target
+    return Package(target, wanted)
+
+
+def _installer(package_format: str) -> list[str]:
+    """The package manager and its options, up to the package file."""
+    if package_format == "rpm":
+        return ["dnf", "install", "-y"]
+    if package_format == "deb":
+        return ["apt-get", "install", "-y"]
+    if package_format == "arch":
+        return ["pacman", "-U", "--noconfirm"]
+    raise ValueError(package_format)
 
 
 def install_command(package_format: str, path: Path) -> list[str]:
     """The package-manager command that installs `path` (run as root)."""
-    if package_format == "rpm":
-        return ["dnf", "install", "-y", str(path)]
-    if package_format == "deb":
-        return ["apt-get", "install", "-y", str(path)]
-    if package_format == "arch":
-        return ["pacman", "-U", "--noconfirm", str(path)]
-    raise ValueError(package_format)
+    return [*_installer(package_format), str(path)]
 
 
 def manual_command(package_format: str, path: Path) -> str:
@@ -269,16 +284,51 @@ def pkexec() -> str | None:
     return shutil.which("pkexec")
 
 
-def pkexec_arguments(package_format: str, path: Path) -> list[str]:
-    """What to give pkexec to install `path`.
+# What pkexec runs as root. The downloaded file sits in a folder its user can write to, and
+# the password box can stay open for as long as the user likes, so anything running as that
+# user could swap the file after it was checked. Root therefore copies it into a folder only
+# root can write (readable by root alone until it is checked), checks the SHA-256 again on
+# that copy, and installs the copy. Arguments: the SHA-256, the downloaded file, its name,
+# then the package manager and its options, to which the checked copy is added.
+INSTALL_SCRIPT = """\
+set -eu
+digest=$1 source=$2 name=$3
+shift 3
+folder=$(mktemp -d)
+trap 'rm -rf -- "$folder"' EXIT
+chmod 0755 "$folder"
+install -m 0600 -- "$source" "$folder/$name"
+if ! printf '%s  %s\\n' "$digest" "$name" | (cd "$folder" && sha256sum -c --status); then
+    echo "The package changed after it was checked, so it was not installed." >&2
+    exit 90
+fi
+chmod 0644 "$folder/$name"
+"$@" "$folder/$name"
+"""
+
+
+def pkexec_arguments(package_format: str, package: Package) -> list[str]:
+    """What to give pkexec to install `package`, checking it again as root first.
 
     `--disable-internal-agent` stops pkexec asking for the password in the terminal krdpc was
     started from, where nobody sees the question and the install waits forever. With no
     desktop password box it now fails at once, and krdpc shows the command to run by hand.
     """
-    return ["--disable-internal-agent", *install_command(package_format, path)]
+    return [
+        "--disable-internal-agent",
+        "/bin/sh",
+        "-c",
+        INSTALL_SCRIPT,
+        "krdpc-install",
+        package.sha256,
+        str(package.path),
+        package.path.name,
+        *_installer(package_format),
+    ]
 
 
 # pkexec's own exit codes: the password box was closed, or no permission was given.
 PKEXEC_DISMISSED = 126
 PKEXEC_REFUSED = 127
+# `INSTALL_SCRIPT` found the file different from the one that was checked.
+PACKAGE_CHANGED = 90

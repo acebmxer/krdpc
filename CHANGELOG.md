@@ -12,6 +12,11 @@ one with FreeRDP's `xfreerdp`.
 
 ### Fixed
 
+- **Installing an update.** The downloaded package could be swapped for another file after krdpc
+  had checked it and before it was installed with your password. The installing step now copies
+  the package to a folder only the administrator can change, checks it against `SHA256SUMS`
+  again there, and installs that copy. If the file no longer matches, nothing is installed and
+  the download is deleted.
 - **Maximizing the remote window under WSL.** With FreeRDP's SDL client (used under WSL),
   a maximized window could stay black: at an odd window height (1920×995 maximized) FreeRDP
   throws away the remote computer's H.264 picture. Under WSL, computers set to **Follow the

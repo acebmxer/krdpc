@@ -3,6 +3,7 @@
 import hashlib
 import io
 import json
+import subprocess
 import sys
 import threading
 import types
@@ -21,6 +22,7 @@ from krdpc.updater import Updater, run_in_thread
 from krdpc.updates import Installed, Release, UpdateError
 
 BASE = "https://github.com/acebmxer/krdpc/releases/download"
+DIGEST = "ab" * 32
 
 
 def release(tag, prerelease=None, files=("rpm", "deb", "arch")):
@@ -207,10 +209,12 @@ def serve(monkeypatch, package=b"package bytes" * 10000, sums=None):
 def test_the_package_is_downloaded_and_checked(monkeypatch, tmp_path):
     found, package = serve(monkeypatch)
     progress = []
-    path = updates.download(
+    result = updates.download(
         found, "rpm", tmp_path, lambda done, total: progress.append((done, total))
     )
+    path = result.path
     assert path == tmp_path / "krdpc-0.2.0-1.noarch.rpm"
+    assert result.sha256 == hashlib.sha256(package).hexdigest()
     assert path.read_bytes() == package
     assert progress[-1] == (len(package), len(package))
     assert list(tmp_path.iterdir()) == [path]
@@ -423,7 +427,7 @@ def fake_pkexec(tmp_path, monkeypatch, code, output="installed"):
     """A stand-in for pkexec that records its arguments and exits with `code`."""
     script = tmp_path / "pkexec"
     log = tmp_path / "pkexec.args"
-    script.write_text(f'#!/bin/sh\necho "$@" > "{log}"\necho {output}\nexit {code}\n')
+    script.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > "{log}"\necho {output}\nexit {code}\n')
     script.chmod(0o755)
     monkeypatch.setattr(updates, "pkexec", lambda: str(script))
     return log
@@ -437,7 +441,7 @@ def run_update(window, tmp_path, monkeypatch, code, answer=QMessageBox.StandardB
         folder.mkdir(parents=True, exist_ok=True)
         downloaded.write_bytes(b"rpm")
         progress(3, 3)
-        return downloaded
+        return updates.Package(downloaded, DIGEST)
 
     monkeypatch.setattr(updates, "download", fake_download)
     log = fake_pkexec(tmp_path, monkeypatch, code)
@@ -455,13 +459,10 @@ def test_a_successful_install_asks_to_restart(window, tmp_path, monkeypatch):
     boxes, downloaded, log, restarts = run_update(
         window, tmp_path, monkeypatch, 0, answer=QMessageBox.StandardButton.Yes
     )
-    assert log.read_text().split() == [
-        "--disable-internal-agent",
-        "dnf",
-        "install",
-        "-y",
-        str(downloaded),
-    ]
+    arguments = log.read_text()
+    assert arguments.splitlines()[:3] == ["--disable-internal-agent", "/bin/sh", "-c"]
+    tail = f"krdpc-install\n{DIGEST}\n{downloaded}\n{downloaded.name}\ndnf\ninstall\n-y\n"
+    assert arguments.endswith("\n" + tail)
     assert boxes.shown == [
         ("question", "krdpc updated", "krdpc 0.2.0 is installed. Restart krdpc now to use it?")
     ]
@@ -487,14 +488,83 @@ def test_a_failed_install_shows_the_command_to_run_by_hand(window, tmp_path, mon
     assert downloaded.exists() and restarts == []
 
 
+def test_a_package_that_changed_is_deleted_and_not_offered_by_hand(window, tmp_path, monkeypatch):
+    boxes, downloaded, _log, restarts = run_update(
+        window, tmp_path, monkeypatch, updates.PACKAGE_CHANGED
+    )
+    kind, title, text, *_rest = boxes.shown[0]
+    assert (kind, title) == ("warning", "Update not installed")
+    assert "changed after it was checked" in text and "sudo" not in text
+    assert not downloaded.exists() and restarts == []
+
+
 def test_pkexec_never_asks_for_the_password_in_a_terminal():
     from pathlib import Path
 
-    path = Path("/x/k.rpm")
+    package = updates.Package(Path("/x/k.rpm"), DIGEST)
     for package_format in ("rpm", "deb", "arch"):
-        arguments = updates.pkexec_arguments(package_format, path)
+        arguments = updates.pkexec_arguments(package_format, package)
         assert arguments[0] == "--disable-internal-agent"
-        assert arguments[1:] == updates.install_command(package_format, path)
+        # The installer comes last and the script adds the checked copy to it.
+        assert arguments[-3:] == updates.install_command(package_format, package.path)[:-1][-3:]
+        assert str(package.path) not in arguments[-3:]
+
+
+def run_install_script(tmp_path, content, digest, tool_ok=True):
+    """Run `INSTALL_SCRIPT` as pkexec would (here as the test user), with a stand-in installer.
+
+    The installer records the file it was given and what that file held, then exits 0.
+    """
+    package = tmp_path / "krdpc-0.2.0-1.noarch.rpm"
+    package.write_bytes(content)
+    record = tmp_path / "installed"
+    tool = tmp_path / "tool"
+    tool.write_text(f'#!/bin/sh\nprintf "%s\\n" "$1" > "{record}"\ncat "$1" >> "{record}"\n')
+    tool.chmod(0o755)
+    tmp = tmp_path / "tmp"
+    tmp.mkdir()
+    done = subprocess.run(
+        [
+            "/bin/sh",
+            "-c",
+            updates.INSTALL_SCRIPT,
+            "krdpc-install",
+            digest,
+            str(package),
+            package.name,
+            str(tool),
+        ],
+        env={"PATH": "/usr/bin:/bin", "TMPDIR": str(tmp)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return done, record, tmp, package
+
+
+def test_the_install_step_installs_a_copy_it_has_checked(tmp_path):
+    content = b"the real package"
+    done, record, tmp, package = run_install_script(
+        tmp_path, content, hashlib.sha256(content).hexdigest()
+    )
+    assert done.returncode == 0, done.stderr
+    lines = record.read_bytes().split(b"\n", 1)
+    installed = lines[0].decode()
+    assert lines[1] == content
+    # Not the file in the user's folder, and nothing is left behind afterwards.
+    assert installed != str(package) and installed.endswith("/" + package.name)
+    assert list(tmp.iterdir()) == []
+    assert package.read_bytes() == content
+
+
+def test_the_install_step_refuses_a_package_that_was_swapped(tmp_path):
+    done, record, tmp, _package = run_install_script(
+        tmp_path, b"swapped for something else", hashlib.sha256(b"the real package").hexdigest()
+    )
+    assert done.returncode == updates.PACKAGE_CHANGED
+    assert "changed after it was checked" in done.stderr
+    assert not record.exists()  # the installer never ran
+    assert list(tmp.iterdir()) == []
 
 
 def test_no_password_box_shows_the_command_to_run_by_hand(window, tmp_path, monkeypatch):
@@ -511,7 +581,7 @@ def test_no_password_box_shows_the_command_to_run_by_hand(window, tmp_path, monk
 def test_no_pkexec_shows_the_command_to_run_by_hand(window, tmp_path, monkeypatch):
     boxes = Boxes(monkeypatch)
     path = tmp_path / "k.rpm"
-    monkeypatch.setattr(updates, "download", lambda *args: path)
+    monkeypatch.setattr(updates, "download", lambda *args: updates.Package(path, DIGEST))
     monkeypatch.setattr(updates, "pkexec", lambda: None)
     _win, updater = updater_for(window, tmp_path)
     updater.update_to(Installed("0.1.0", "rpm"), release("v0.2.0"))
